@@ -16,7 +16,7 @@
     "deploy:beamup": "beamup",
     "deploy:cloudflare-worker": "npm -w packages/cloudflare-worker run deploy"
   },
-  "author": "Viren070",
+  "author": "Viren0700",
   "license": "MIT",
   "workspaces": [
     "packages/*"
