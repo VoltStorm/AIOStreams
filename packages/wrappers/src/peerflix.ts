@@ -1,15 +1,8 @@
 import { AddonDetail, StreamRequest } from '@aiostreams/types';
-import { ParsedStream, Stream, Config } from '@aiostreams/types';
+import { ParsedStream, Config } from '@aiostreams/types';
 import { BaseWrapper } from './base';
 import { addonDetails } from '@aiostreams/utils';
 import { Settings } from '@aiostreams/utils';
-
-interface PeerflixStream extends Stream {
-  seed?: string;
-  sizeBytes?: number;
-  language?: string;
-  quality?: string;
-}
 
 export class Peerflix extends BaseWrapper {
   constructor(
@@ -45,11 +38,11 @@ export async function getPeerflixStreams(
   },
   streamRequest: StreamRequest,
   addonId: string
-): Promise<ParsedStream[]> {
+): Promise<{ addonStreams: ParsedStream[]; addonErrors: string[] }> {
   const supportedServices: string[] =
     addonDetails.find((addon: AddonDetail) => addon.id === 'peerflix')
       ?.supportedServices || [];
-  const parsedStreams: ParsedStream[] = [];
+  const addonStreams: ParsedStream[] = [];
   const indexerTimeout = peerflixOptions.indexerTimeout
     ? parseInt(peerflixOptions.indexerTimeout)
     : undefined;
@@ -64,7 +57,7 @@ export async function getPeerflixStreams(
       config,
       indexerTimeout
     );
-    return peerflix.getParsedStreams(streamRequest);
+    return await peerflix.getParsedStreams(streamRequest);
   }
 
   // find all usable services
@@ -89,7 +82,7 @@ export async function getPeerflixStreams(
   }
 
   // otherwise, depending on the configuration, create multiple instances of peerflix or use a single instance with all services
-
+  const addonErrors: string[] = [];
   const getServicePair = (
     serviceId: string,
     credentials: { [key: string]: string }
@@ -102,9 +95,6 @@ export async function getPeerflixStreams(
   if (peerflixOptions.useMultipleInstances === 'true') {
     let retrievedP2PStreams = false;
     const promises = usableServices.map(async (service) => {
-      if (!service.enabled) {
-        return [];
-      }
       console.log(
         `|DBG| wrappers > peerflix: Creating Peerflix instance with service: ${service.id}`
       );
@@ -124,9 +114,16 @@ export async function getPeerflixStreams(
       );
       return await peerflix.getParsedStreams(streamRequest);
     });
-    const results = await Promise.all(promises);
-    results.forEach((streams) => parsedStreams.push(...streams));
-    return parsedStreams;
+    const results = await Promise.allSettled(promises);
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        addonStreams.push(...result.value.addonStreams);
+        addonErrors.push(...result.value.addonErrors);
+      } else {
+        addonErrors.push(result.reason.message);
+      }
+    }
+    return { addonStreams, addonErrors };
   } else {
     let configPairs = [];
     for (const service of usableServices) {

@@ -37,11 +37,11 @@ export async function getTorrentioStreams(
   },
   streamRequest: StreamRequest,
   addonId: string
-): Promise<ParsedStream[]> {
+): Promise<{ addonStreams: ParsedStream[]; addonErrors: string[] }> {
   const supportedServices: string[] =
     addonDetails.find((addon: AddonDetail) => addon.id === 'torrentio')
       ?.supportedServices || [];
-  const parsedStreams: ParsedStream[] = [];
+  const addonStreams: ParsedStream[] = [];
   const indexerTimeout = torrentioOptions.indexerTimeout
     ? parseInt(torrentioOptions.indexerTimeout)
     : undefined;
@@ -56,7 +56,7 @@ export async function getTorrentioStreams(
       config,
       indexerTimeout
     );
-    return torrentio.getParsedStreams(streamRequest);
+    return await torrentio.getParsedStreams(streamRequest);
   }
 
   // find all usable services
@@ -78,7 +78,7 @@ export async function getTorrentioStreams(
   }
 
   // otherwise, depending on the configuration, create multiple instances of torrentio or use a single instance with all services
-
+  const addonErrors: string[] = [];
   const getServicePair = (
     serviceId: string,
     credentials: { [key: string]: string }
@@ -90,9 +90,6 @@ export async function getTorrentioStreams(
 
   if (torrentioOptions.useMultipleInstances === 'true') {
     const promises = usableServices.map(async (service) => {
-      if (!service.enabled) {
-        return [];
-      }
       console.log('Creating Torrentio instance with service:', service.id);
       let configString = getServicePair(service.id, service.credentials);
       const torrentio = new Torrentio(
@@ -105,9 +102,16 @@ export async function getTorrentioStreams(
       );
       return await torrentio.getParsedStreams(streamRequest);
     });
-    const results = await Promise.all(promises);
-    results.forEach((streams) => parsedStreams.push(...streams));
-    return parsedStreams;
+    const results = await Promise.allSettled(promises);
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        addonStreams.push(...result.value.addonStreams);
+        addonErrors.push(...result.value.addonErrors);
+      } else if (result.status === 'rejected') {
+        addonErrors.push(result.reason);
+      }
+    });
+    return { addonStreams, addonErrors };
   } else {
     let configString = '';
     for (const service of usableServices) {

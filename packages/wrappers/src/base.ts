@@ -4,15 +4,11 @@ import {
   StreamRequest,
   ParsedNameData,
   Config,
+  ErrorStream,
+  ParseResult,
 } from '@aiostreams/types';
 import { parseFilename } from '@aiostreams/parser';
-import {
-  getMediaFlowConfig,
-  getMediaFlowPublicIp,
-  getTextHash,
-  serviceDetails,
-  Settings,
-} from '@aiostreams/utils';
+import { getTextHash, serviceDetails, Settings } from '@aiostreams/utils';
 import { fetch as uFetch, ProxyAgent } from 'undici';
 import { emojiToLanguage, codeToLanguage } from '@aiostreams/formatters';
 
@@ -45,14 +41,27 @@ export class BaseWrapper {
       : `${manifestUrl}/manifest.json`;
   }
 
-  public async getParsedStreams(
-    streamRequest: StreamRequest
-  ): Promise<ParsedStream[]> {
+  public async getParsedStreams(streamRequest: StreamRequest): Promise<{
+    addonStreams: ParsedStream[];
+    addonErrors: string[];
+  }> {
     const streams: Stream[] = await this.getStreams(streamRequest);
-    const parsedStreams: ParsedStream[] = streams
-      .map((stream) => this.parseStream(stream))
+    const errors: string[] = [];
+    const finalStreams = streams
+      .map((stream) => {
+        const { type, result } = this.parseStream(stream);
+        if (type === 'error') {
+          errors.push(result);
+          return undefined;
+        } else if (type === 'stream') {
+          return result;
+        } else {
+          return undefined;
+        }
+      })
       .filter((parsedStream) => parsedStream !== undefined);
-    return parsedStreams;
+
+    return { addonStreams: finalStreams, addonErrors: errors };
   }
 
   private getStreamUrl(streamRequest: StreamRequest) {
@@ -64,76 +73,110 @@ export class BaseWrapper {
     );
   }
 
-  protected async getStreams(streamRequest: StreamRequest): Promise<Stream[]> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.indexerTimeout);
+  private shouldProxyRequest(url: string): boolean {
+    let useProxy: boolean = false;
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch (e) {
+      console.error(`|ERR| utils > shouldProxyRequest Error parsing URL`);
+      return false;
+    }
+    if (!Settings.ADDON_PROXY) {
+      useProxy = false;
+    } else if (Settings.ADDON_PROXY_CONFIG || Settings.ADDON_PROXY) {
+      useProxy = true;
+      if (Settings.ADDON_PROXY_CONFIG) {
+        for (const rule of Settings.ADDON_PROXY_CONFIG.split(',')) {
+          const [ruleHost, enabled] = rule.split(':');
+          if (['true', 'false'].includes(enabled) === false) {
+            console.error(
+              `|ERR| utils > shouldProxyRequest > Invalid rule: ${rule}`
+            );
+            continue;
+          }
+          if (ruleHost === '*') {
+            useProxy = !(enabled === 'false');
+          } else if (ruleHost.startsWith('*')) {
+            if (hostname.endsWith(ruleHost.slice(1))) {
+              useProxy = !(enabled === 'false');
+            }
+          }
+          if (hostname === ruleHost) {
+            useProxy = !(enabled === 'false');
+          }
+        }
+      }
+    }
+    return useProxy;
+  }
 
+  private getLoggableUrl(url: string): string {
+    let urlObj = new URL(url);
+    return `${urlObj.protocol}//${urlObj.hostname}/${urlObj.pathname
+      .split('/')
+      .slice(1, -3)
+      .map((part) => (Settings.LOG_SENSITIVE_INFO ? part : '<redacted>'))
+      .join('/')}/${urlObj.pathname.split('/').slice(-3).join('/')}`;
+  }
+
+  protected makeRequest(url: string): Promise<any> {
+    const headers = new Headers();
+    const userIp = this.userConfig.requestingIp;
+    if (userIp) {
+      headers.set('X-Client-IP', userIp);
+      headers.set('X-Forwarded-For', userIp);
+      headers.set('X-Real-IP', userIp);
+    }
+
+    let sanitisedUrl = this.getLoggableUrl(url);
+    let useProxy = this.shouldProxyRequest(url);
+
+    console.log(
+      `|DBG| wrappers > base > ${this.addonName}: Making a ${useProxy ? 'proxied' : 'direct'} request to ${sanitisedUrl} with user IP ${
+        userIp
+          ? Settings.LOG_SENSITIVE_INFO
+            ? userIp
+            : '<redacted>'
+          : 'not set'
+      }`
+    );
+
+    let response = useProxy
+      ? uFetch(url, {
+          dispatcher: new ProxyAgent(Settings.ADDON_PROXY),
+          method: 'GET',
+          headers: headers,
+          signal: AbortSignal.timeout(this.indexerTimeout),
+        })
+      : fetch(url, {
+          method: 'GET',
+          headers: headers,
+          signal: AbortSignal.timeout(this.indexerTimeout),
+        });
+
+    return response;
+  }
+  protected async getStreams(streamRequest: StreamRequest): Promise<Stream[]> {
     const url = this.getStreamUrl(streamRequest);
     const cache = this.userConfig.instanceCache;
     const requestCacheKey = getTextHash(url);
     const cachedStreams = cache ? cache.get(requestCacheKey) : undefined;
-    const sanitisedUrl =
-      new URL(url).hostname + '/****/' + new URL(url).pathname.split('/').pop();
     if (cachedStreams) {
       console.debug(
-        `|DBG| wrappers > base > ${this.addonName}: Returning cached streams for ${sanitisedUrl}`
+        `|DBG| wrappers > base > ${this.addonName}: Returning cached streams for ${this.getLoggableUrl(url)}`
       );
       return cachedStreams;
     }
     try {
-      // Add requesting IP to headers
-      const headers = new Headers();
-      const userIp = this.userConfig.requestingIp;
-      if (userIp) {
-        if (Settings.LOG_SENSITIVE_INFO) {
-          console.debug(
-            `|DBG| wrappers > base > ${this.addonName}: Using IP: ${userIp}`
-          );
-        }
-        headers.set('X-Forwarded-For', userIp);
-        headers.set('X-Real-IP', userIp);
-      }
-      console.log(
-        `|INF| wrappers > base > ${this.addonName}: Fetching with timeout ${this.indexerTimeout}ms from ${sanitisedUrl}`
-      );
-      let response;
-      try {
-        response = await fetch(url, {
-          method: 'GET',
-          headers: headers,
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          let message = await response.text();
-          throw new Error(
-            `${response.status} - ${response.statusText}: ${message}`
-          );
-        }
-      } catch (error: any) {
-        if (!Settings.ADDON_PROXY) {
-          throw error;
-        }
-        const dispatcher = new ProxyAgent(Settings.ADDON_PROXY);
-        console.error(
-          `|ERR| wrappers > base > ${this.addonName}: Got error: ${error.message} when fetching from ${sanitisedUrl}, trying with proxy instead`
-        );
-        response = await uFetch(url, {
-          dispatcher,
-          method: 'GET',
-          headers: headers,
-          signal: controller.signal,
-        });
-      }
-
-      clearTimeout(timeout);
-
+      const response = await this.makeRequest(url);
       if (!response.ok) {
-        let message = await response.text();
-        throw new Error(
-          `${response.status} - ${response.statusText}: ${message}`
-        );
+        const text = await response.text();
+        let error = `${response.status} - ${response.statusText}`;
+        try {
+          error += ` with response: ${JSON.stringify(JSON.parse(text))}`;
+        } catch {}
+        throw new Error(error);
       }
 
       const results = (await response.json()) as { streams: Stream[] };
@@ -149,10 +192,9 @@ export class BaseWrapper {
       }
       return results.streams;
     } catch (error: any) {
-      clearTimeout(timeout);
       let message = error.message;
-      if (error.name === 'AbortError') {
-        message = `${this.addonName} failed to respond within ${this.indexerTimeout}ms`;
+      if (error.name === 'TimeoutError') {
+        message = `The request to ${this.addonName} timed out after ${this.indexerTimeout}ms`;
       }
       return Promise.reject(new Error(message));
     }
@@ -170,56 +212,73 @@ export class BaseWrapper {
     duration?: number,
     personal?: boolean,
     infoHash?: string
-  ): ParsedStream {
+  ): ParseResult {
     return {
-      ...parsedInfo,
-      addon: { name: this.addonName, id: this.addonId },
-      filename: filename,
-      size: size,
-      url: stream.url,
-      externalUrl: stream.externalUrl,
-      _infoHash: infoHash,
-      torrent: {
-        infoHash: stream.infoHash,
-        fileIdx: stream.fileIdx,
-        sources: stream.sources,
-        seeders: seeders,
-      },
-      provider: provider,
-      usenet: {
-        age: usenetAge,
-      },
-      indexers: indexer,
-      duration: duration,
-      personal: personal,
-      type: stream.infoHash
-        ? 'p2p'
-        : usenetAge
-          ? 'usenet'
-          : provider
-            ? 'debrid'
-            : stream.url?.endsWith('.m3u8')
-              ? 'live'
-              : 'unknown',
-      stream: {
-        subtitles: stream.subtitles,
-        behaviorHints: {
-          countryWhitelist: stream.behaviorHints?.countryWhitelist,
-          notWebReady: stream.behaviorHints?.notWebReady,
-          proxyHeaders:
-            stream.behaviorHints?.proxyHeaders?.request ||
-            stream.behaviorHints?.proxyHeaders?.response
-              ? {
-                  request: stream.behaviorHints?.proxyHeaders?.request,
-                  response: stream.behaviorHints?.proxyHeaders?.response,
-                }
-              : undefined,
-          videoHash: stream.behaviorHints?.videoHash,
+      type: 'stream',
+      result: {
+        ...parsedInfo,
+        addon: { name: this.addonName, id: this.addonId },
+        filename: filename,
+        size: size,
+        url: stream.url,
+        externalUrl: stream.externalUrl,
+        _infoHash: infoHash,
+        torrent: {
+          infoHash: stream.infoHash,
+          fileIdx: stream.fileIdx,
+          sources: stream.sources,
+          seeders: seeders,
+        },
+        provider: provider,
+        usenet: {
+          age: usenetAge,
+        },
+        indexers: indexer,
+        duration: duration,
+        personal: personal,
+        type: stream.infoHash
+          ? 'p2p'
+          : usenetAge
+            ? 'usenet'
+            : provider
+              ? 'debrid'
+              : stream.url?.endsWith('.m3u8')
+                ? 'live'
+                : 'unknown',
+        stream: {
+          subtitles: stream.subtitles,
+          behaviorHints: {
+            countryWhitelist: stream.behaviorHints?.countryWhitelist,
+            notWebReady: stream.behaviorHints?.notWebReady,
+            proxyHeaders:
+              stream.behaviorHints?.proxyHeaders?.request ||
+              stream.behaviorHints?.proxyHeaders?.response
+                ? {
+                    request: stream.behaviorHints?.proxyHeaders?.request,
+                    response: stream.behaviorHints?.proxyHeaders?.response,
+                  }
+                : undefined,
+            videoHash: stream.behaviorHints?.videoHash,
+          },
         },
       },
     };
   }
-  protected parseStream(stream: { [key: string]: any }): ParsedStream {
+  protected parseStream(stream: { [key: string]: any }): ParseResult {
+    // see if the stream is an error
+    const errorRegex = /invalid\s+\w+\s+(account|apikey|token)/i;
+    if (
+      errorRegex.test(stream.title || '') ||
+      errorRegex.test(stream.description || '')
+    ) {
+      console.log(
+        `|ERR| wrappers > base > ${this.addonName}: ${stream.title || stream.description} was detected as an error`
+      );
+      return {
+        type: 'error',
+        result: stream.title || stream.description,
+      };
+    }
     // attempt to look for filename in behaviorHints.filename
     let filename =
       stream?.behaviorHints?.filename || stream.torrentTitle || stream.filename;
@@ -369,30 +428,34 @@ export class BaseWrapper {
   }
 
   protected extractResolution(string: string): string | undefined {
-    const resolutionPattern = /(?:\d{3,4}p|SD|HD|FHD|UHD|4K|8K)/i;
+    const resolutionPattern = /(?:\d{3,4}(?:p)?|SD|HD|FHD|UHD|4K|8K)/gi;
     const match = string.match(resolutionPattern);
 
     if (!match) return undefined;
-
-    const resolution = match[0].toUpperCase();
-    switch (resolution) {
-      case '480P':
-      case 'SD':
-        return '480p';
-      case '720P':
-      case 'HD':
-        return '720p';
-      case '1080P':
-      case '960P':
-      case 'FHD':
-        return '1080p';
-      case 'UHD':
-      case '4K':
-      case '2160P':
-        return '2160p';
-      default:
-        return resolution;
-    }
+    return (
+      match
+        .map((resolution) => {
+          switch (resolution) {
+            case '480':
+            case 'SD':
+              return '480p';
+            case '720':
+            case 'HD':
+              return '720p';
+            case '1080':
+            case '960':
+            case 'FHD':
+              return '1080p';
+            case 'UHD':
+            case '4K':
+            case '2160':
+              return '2160p';
+            default:
+              return 'Unknown';
+          }
+        })
+        .find((res) => res !== 'Unknown') || 'Unknown'
+    );
   }
 
   protected extractSizeInBytes(string: string, k: number): number {
@@ -420,15 +483,16 @@ export class BaseWrapper {
   protected extractDurationInMs(input: string): number {
     // Regular expression to match different formats of time durations
     const regex =
-      /(\d+)h[:\s]?(\d+)m[:\s]?(\d+)s|(\d+)h[:\s]?(\d+)m|(\d+)h|(\d+)m|(\d+)s/gi;
+      /(?<![^\s\[(_\-,.])(?:(\d+)h[:\s]?(\d+)m[:\s]?(\d+)s|(\d+)h[:\s]?(\d+)m|(\d+)h|(\d+)m|(\d+)s)(?=[\s\)\]_.\-,]|$)/gi;
+
     const match = regex.exec(input);
     if (!match) {
       return 0;
     }
 
-    const hours = parseInt(match[1] || match[4] || match[5] || '0', 10);
-    const minutes = parseInt(match[2] || match[5] || match[6] || '0', 10);
-    const seconds = parseInt(match[3] || match[6] || match[7] || '0', 10);
+    const hours = parseInt(match[1] || match[4] || match[6] || '0', 10);
+    const minutes = parseInt(match[2] || match[5] || match[7] || '0', 10);
+    const seconds = parseInt(match[3] || match[8] || '0', 10);
 
     // Convert to milliseconds
     const totalMilliseconds = (hours * 3600 + minutes * 60 + seconds) * 1000;

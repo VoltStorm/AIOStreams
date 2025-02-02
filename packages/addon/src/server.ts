@@ -63,6 +63,12 @@ app.use(express.json());
 // Built-in middleware for parsing URL-encoded data
 app.use(express.urlencoded({ extended: true }));
 
+// unhandled errors
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error(`|ERR| server > ${err.message}`);
+  res.status(500).send('Internal server error');
+});
+
 app.use((req, res, next) => {
   res.append('Access-Control-Allow-Origin', '*');
   res.append('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
@@ -115,11 +121,36 @@ app.get('/:config/configure', (req, res) => {
 });
 
 app.get('/manifest.json', (req, res) => {
-  res.status(200).json(manifest(false));
+  res.status(200).json(manifest());
 });
 
 app.get('/:config/manifest.json', (req, res) => {
-  res.status(200).json(manifest(true));
+  const config = req.params.config;
+  let configJson: Config;
+  try {
+    configJson = extractJsonConfig(config);
+    console.log(`|DBG| server > Extracted config for manifest request`);
+    configJson = decryptEncryptedInfoFromConfig(configJson);
+    if (Settings.LOG_SENSITIVE_INFO) {
+      console.log(`|DBG| server > Final config: ${JSON.stringify(configJson)}`);
+    }
+    console.log(
+      `|DBG| server > Successfully removed or decrypted sensitive info`
+    );
+    const { valid, errorMessage } = validateConfig(configJson);
+    if (!valid) {
+      console.error(
+        `|ERR| server > Received invalid config for manifest request: ${errorMessage}`
+      );
+      res.status(400).json({ error: 'Invalid config', message: errorMessage });
+      return;
+    }
+  } catch (error: any) {
+    console.error(`|ERR| server > Failed to extract config: ${error.message}`);
+    res.status(400).json({ error: 'Invalid config' });
+    return;
+  }
+  res.status(200).json(manifest(configJson));
 });
 
 // Route for /stream
@@ -194,9 +225,22 @@ app.get('/:config/stream/:type/:id.json', (req, res: Response): void => {
       req.ip;
     configJson.instanceCache = cache;
     const aioStreams = new AIOStreams(configJson);
-    aioStreams.getStreams(streamRequest).then((streams) => {
-      res.json({ streams: streams });
-    });
+    aioStreams
+      .getStreams(streamRequest)
+      .then((streams) => {
+        res.json({ streams: streams });
+      })
+      .catch((error: any) => {
+        console.error(`|ERR| server > Internal addon error: ${error.message}`);
+        res.json(
+          errorResponse(
+            'An unexpected error occurred, please check the logs or create an issue on GitHub',
+            rootUrl(req),
+            undefined,
+            'https://github.com/Viren070/AIOStreams/issues/new?template=bug_report.yml'
+          )
+        );
+      });
   } catch (error: any) {
     console.error(`|ERR| server > Internal addon error: ${error.message}`);
     res.json(

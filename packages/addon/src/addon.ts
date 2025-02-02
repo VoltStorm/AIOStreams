@@ -44,6 +44,9 @@ export class AIOStreams {
 
   private async getRequestingIp() {
     let userIp = this.config.requestingIp;
+    if (userIp === '::1') {
+      userIp = undefined;
+    }
     const mediaFlowConfig = getMediaFlowConfig(this.config);
     if (mediaFlowConfig.mediaFlowEnabled) {
       const mediaFlowIp = await getMediaFlowPublicIp(
@@ -87,11 +90,11 @@ export class AIOStreams {
         ];
       }
     }
-    const { errorStreams, parsedStreams } =
+    const { parsedStreams, errorStreams } =
       await this.getParsedStreams(streamRequest);
 
     console.log(
-      `|INF| addon > getStreams: Got ${parsedStreams.length} total parsed streams in ${getTimeTakenSincePoint(startTime)}`
+      `|INF| addon > getStreams: Got ${parsedStreams.length} parsed streams and ${errorStreams.length} error streams in ${getTimeTakenSincePoint(startTime)}`
     );
     const filterStartTime = new Date().getTime();
 
@@ -592,7 +595,9 @@ export class AIOStreams {
         }
         return mediaFlowStream;
       } catch (error) {
-        console.error(`Failed to create MediaFlow stream URL: ${error}`);
+        console.error(
+          `|ERR| addon > createStreamObject: Failed to create MediaFlow stream URL: ${error}`
+        );
         return null;
       }
     }
@@ -860,9 +865,17 @@ export class AIOStreams {
 
   private async getParsedStreams(
     streamRequest: StreamRequest
-  ): Promise<{ errorStreams: ErrorStream[]; parsedStreams: ParsedStream[] }> {
+  ): Promise<{ parsedStreams: ParsedStream[]; errorStreams: ErrorStream[] }> {
     const parsedStreams: ParsedStream[] = [];
     const errorStreams: ErrorStream[] = [];
+    const formatError = (error: string) =>
+      error
+        .replace(/- |: /g, '\n')
+        .split('\n')
+        .map((line: string) => line.trim())
+        .join('\n')
+        .trim();
+
     const addonPromises = this.config.addons.map(async (addon) => {
       const addonName =
         addon.options.name ||
@@ -872,21 +885,27 @@ export class AIOStreams {
       const addonId = `${addon.id}-${JSON.stringify(addon.options)}`;
       try {
         const startTime = new Date().getTime();
-        const streams = await this.getStreamsFromAddon(
+        const { addonStreams, addonErrors } = await this.getStreamsFromAddon(
           addon,
           addonId,
           streamRequest
         );
-        parsedStreams.push(...streams);
+        parsedStreams.push(...addonStreams);
+        errorStreams.push(
+          ...[...new Set(addonErrors)].map((error) => ({
+            error: formatError(error),
+            addon: { id: addonId, name: addonName },
+          }))
+        );
         console.log(
-          `|INF| addon > getParsedStreams: Got ${streams.length} streams from addon ${addonName} in ${getTimeTakenSincePoint(startTime)}`
+          `|INF| addon > getParsedStreams: Got ${addonStreams.length} streams ${addonErrors.length > 0 ? `and ${addonErrors.length} errors ` : ''}from addon ${addonName} in ${getTimeTakenSincePoint(startTime)}`
         );
       } catch (error: any) {
         console.error(
           `|ERR| addon > getParsedStreams: Failed to get streams from ${addonName}: ${error}`
         );
         errorStreams.push({
-          error: `${error.message.replace('-', '\n').replace(':', '\n')}`,
+          error: formatError(error.message),
           addon: {
             id: addonId,
             name: addonName,
@@ -896,14 +915,14 @@ export class AIOStreams {
     });
 
     await Promise.all(addonPromises);
-    return { errorStreams, parsedStreams };
+    return { parsedStreams, errorStreams };
   }
 
   private async getStreamsFromAddon(
     addon: Config['addons'][0],
     addonId: string,
     streamRequest: StreamRequest
-  ): Promise<ParsedStream[]> {
+  ): Promise<{ addonStreams: ParsedStream[]; addonErrors: string[] }> {
     switch (addon.id) {
       case 'torbox': {
         return await getTorboxStreams(
@@ -1023,7 +1042,7 @@ export class AIOStreams {
             ? parseInt(addon.options.indexerTimeout)
             : undefined
         );
-        return await wrapper.getParsedStreams(streamRequest);
+        return wrapper.getParsedStreams(streamRequest);
       }
     }
   }
@@ -1049,13 +1068,13 @@ export class AIOStreams {
       console.log('==================');*/
       // Separate streams into categories
       const cachedStreams = groupedStreams.filter(
-        (stream) => stream.provider?.cached
+        (stream) => stream.provider?.cached || (!stream.provider && stream.url)
       );
       const uncachedStreams = groupedStreams.filter(
         (stream) => stream.provider && !stream.provider.cached
       );
       const noProviderStreams = groupedStreams.filter(
-        (stream) => !stream.provider
+        (stream) => !stream.provider && stream.torrent?.infoHash
       );
 
       // Select uncached streams by addon priority (one per provider)
@@ -1086,10 +1105,10 @@ export class AIOStreams {
       // Select cached streams by provider and addon priority
       const selectedCachedStream = cachedStreams.sort((a, b) => {
         const aProviderIndex = this.config.services.findIndex(
-          (service) => service.id === a.provider!.id
+          (service) => service.id === a.provider?.id
         );
         const bProviderIndex = this.config.services.findIndex(
-          (service) => service.id === b.provider!.id
+          (service) => service.id === b.provider?.id
         );
 
         if (aProviderIndex !== bProviderIndex) {

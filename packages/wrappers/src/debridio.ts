@@ -1,4 +1,4 @@
-import { AddonDetail, StreamRequest } from '@aiostreams/types';
+import { AddonDetail, ParseResult, StreamRequest } from '@aiostreams/types';
 import { ParsedStream, Stream, Config } from '@aiostreams/types';
 import { BaseWrapper } from './base';
 import { addonDetails } from '@aiostreams/utils';
@@ -25,25 +25,16 @@ export class Debridio extends BaseWrapper {
       indexerTimeout || Settings.DEFAULT_DEBRIDIO_TIMEOUT
     );
   }
-
-  protected parseStream(stream: Stream): ParsedStream {
-    const superParsedStream = super.parseStream(stream);
-
-    if (!superParsedStream.provider) {
-      superParsedStream.provider = {
-        id: 'easydebrid',
-        cached: false,
-      };
-    }
-
-    return superParsedStream;
-  }
 }
 
 const getDebridioConfigString = (provider: string, apiKey: string) => {
   const config = {
     provider,
     apiKey,
+    disableUncached: false,
+    qualityOrder: [],
+    excludeSize: '',
+    maxReturnPerQuality: '',
   };
   return Buffer.from(JSON.stringify(config)).toString('base64');
 };
@@ -58,11 +49,14 @@ export async function getDebridioStreams(
   },
   streamRequest: StreamRequest,
   addonId: string
-): Promise<ParsedStream[]> {
+): Promise<{
+  addonStreams: ParsedStream[];
+  addonErrors: string[];
+}> {
   const supportedServices: string[] =
     addonDetails.find((addon: AddonDetail) => addon.id === 'debridio')
       ?.supportedServices || [];
-  const parsedStreams: ParsedStream[] = [];
+  const addonStreams: ParsedStream[] = [];
   const indexerTimeout = debridioOptions.indexerTimeout
     ? parseInt(debridioOptions.indexerTimeout)
     : undefined;
@@ -139,6 +133,8 @@ export async function getDebridioStreams(
     throw new Error('No supported service(s) enabled');
   }
 
+  const addonErrors: string[] = [];
+
   const streamPromises = servicesToUse.map(async (service) => {
     const debridioConfigString = getDebridioConfigString(
       service.id,
@@ -155,8 +151,16 @@ export async function getDebridioStreams(
     return debridio.getParsedStreams(streamRequest);
   });
 
-  const streamsArray = await Promise.all(streamPromises);
-  streamsArray.forEach((streams) => parsedStreams.push(...streams));
+  const streamsArray = await Promise.allSettled(streamPromises);
 
-  return parsedStreams;
+  streamsArray.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      addonStreams.push(...result.value.addonStreams);
+      addonErrors.push(...result.value.addonErrors);
+    } else {
+      addonErrors.push(result.reason.message);
+    }
+  });
+
+  return { addonStreams, addonErrors };
 }

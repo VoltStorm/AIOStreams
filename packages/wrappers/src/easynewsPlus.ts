@@ -1,4 +1,4 @@
-import { ParsedNameData, StreamRequest } from '@aiostreams/types';
+import { ParsedNameData, ParseResult, StreamRequest } from '@aiostreams/types';
 import { parseFilename } from '@aiostreams/parser';
 import { ParsedStream, Stream, Config } from '@aiostreams/types';
 import { BaseWrapper } from './base';
@@ -27,8 +27,12 @@ export class EasynewsPlus extends BaseWrapper {
     );
   }
 
-  protected parseStream(stream: Stream): ParsedStream {
-    return { ...super.parseStream(stream), type: 'usenet' };
+  protected parseStream(stream: Stream): ParseResult {
+    const parseResult = super.parseStream(stream);
+    if (parseResult.type !== 'error') {
+      parseResult.result.type = 'usenet';
+    }
+    return parseResult;
   }
 }
 
@@ -45,7 +49,10 @@ export async function getEasynewsPlusStreams(
   },
   streamRequest: StreamRequest,
   addonId: string
-): Promise<ParsedStream[]> {
+): Promise<{
+  addonStreams: ParsedStream[];
+  addonErrors: string[];
+}> {
   // look for the 'easynews' id in the services array and destructure the username and password
   // if we cant find it, throw an error
   const easynewsService = serviceDetails.find(
@@ -80,6 +87,5 @@ export async function getEasynewsPlusStreams(
       : undefined
   );
 
-  const streams = await easynews.getParsedStreams(streamRequest);
-  return streams;
+  return await easynews.getParsedStreams(streamRequest);
 }

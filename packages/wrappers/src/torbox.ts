@@ -3,6 +3,7 @@ import {
   Config,
   ParsedNameData,
   ParsedStream,
+  ParseResult,
   Stream,
   StreamRequest,
 } from '@aiostreams/types';
@@ -44,7 +45,7 @@ export class Torbox extends BaseWrapper {
     );
   }
 
-  protected parseStream(stream: TorboxStream): ParsedStream {
+  protected parseStream(stream: TorboxStream): ParseResult {
     let type = stream.type;
     let personal = false;
     if (stream.name.includes('Your Media')) {
@@ -131,7 +132,7 @@ export class Torbox extends BaseWrapper {
       infoHash = undefined;
     }
 
-    const parsedStream: ParsedStream = this.createParsedResult(
+    const parsedStream: ParseResult = this.createParsedResult(
       parsedFilename,
       stream,
       filename,
@@ -157,7 +158,7 @@ export async function getTorboxStreams(
   },
   streamRequest: StreamRequest,
   addonId: string
-): Promise<ParsedStream[]> {
+): Promise<{ addonStreams: ParsedStream[]; addonErrors: string[] }> {
   const torboxService = config.services.find(
     (service) => service.id === 'torbox'
   );

@@ -69,11 +69,14 @@ export async function getJackettioStreams(
   },
   streamRequest: StreamRequest,
   addonId: string
-): Promise<ParsedStream[]> {
+): Promise<{
+  addonStreams: ParsedStream[];
+  addonErrors: string[];
+}> {
   const supportedServices: string[] =
     addonDetails.find((addon: AddonDetail) => addon.id === 'jackettio')
       ?.supportedServices || [];
-  const parsedStreams: ParsedStream[] = [];
+  const addonStreams: ParsedStream[] = [];
 
   const indexerTimeout = jackettioOptions.indexerTimeout
     ? parseInt(jackettioOptions.indexerTimeout)
@@ -146,6 +149,7 @@ export async function getJackettioStreams(
   }
 
   // if no prioritised service is provided, create a jackettio instance for each service
+  const addonErrors: string[] = [];
   const servicesToUse = usableServices.filter((service) => service.enabled);
   if (servicesToUse.length < 1) {
     throw new Error('No supported service(s) enabled');
@@ -167,8 +171,18 @@ export async function getJackettioStreams(
     return jackettio.getParsedStreams(streamRequest);
   });
 
-  const streamsArray = await Promise.all(streamPromises);
-  streamsArray.forEach((streams) => parsedStreams.push(...streams));
+  const streamsArray = await Promise.allSettled(streamPromises);
+  streamsArray.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      addonStreams.push(...result.value.addonStreams);
+      addonErrors.push(...result.value.addonErrors);
+    } else {
+      addonErrors.push(result.reason.message);
+    }
+  });
 
-  return parsedStreams;
+  return {
+    addonStreams,
+    addonErrors,
+  };
 }
