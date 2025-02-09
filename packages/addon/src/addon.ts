@@ -9,6 +9,7 @@ import {
   getMediafusionStreams,
   getOrionStreams,
   getPeerflixStreams,
+  getStremioJackettStreams,
   getTorboxStreams,
   getTorrentioStreams,
 } from '@aiostreams/wrappers';
@@ -126,19 +127,19 @@ export class AIOStreams {
 
     let filteredResults = parsedStreams.filter((parsedStream) => {
       const streamTypeFilter = this.config.streamTypes?.find(
-        (streamType) => streamType[parsedStream.type]
+        (streamType) => streamType[parsedStream.type] === false
       );
-      if (this.config.streamTypes && !streamTypeFilter) return false;
+      if (this.config.streamTypes && streamTypeFilter) return false;
 
-      const resolutionFilter = this.config.resolutions.find(
-        (resolution) => resolution[parsedStream.resolution]
+      const resolutionFilter = this.config.resolutions?.find(
+        (resolution) => resolution[parsedStream.resolution] === false
       );
-      if (!resolutionFilter) return false;
+      if (resolutionFilter) return false;
 
-      const qualityFilter = this.config.qualities.find(
-        (quality) => quality[parsedStream.quality]
+      const qualityFilter = this.config.qualities?.find(
+        (quality) => quality[parsedStream.quality] === false
       );
-      if (!qualityFilter) return false;
+      if (this.config.qualities && qualityFilter) return false;
 
       // Check for HDR and DV tags in the parsed stream
       const hasHDR = parsedStream.visualTags.some((tag) =>
@@ -150,9 +151,8 @@ export class AIOStreams {
         (visualTag) => visualTag['HDR+DV'] === true
       );
 
-      // Helper function to check if a specific tag is enabled
-      const isTagEnabled = (tag: string) =>
-        this.config.visualTags.some((visualTag) => visualTag[tag] === true);
+      const isTagDisabled = (tag: string) =>
+        this.config.visualTags.some((visualTag) => visualTag[tag] === false);
 
       if (hasHDRAndDV) {
         if (!HDRAndDVEnabled) {
@@ -163,21 +163,19 @@ export class AIOStreams {
           tag.startsWith('HDR')
         );
         const disabledTags = specificHdrTags.filter(
-          (tag) => !isTagEnabled(tag)
+          (tag) => isTagDisabled(tag) === true
         );
         if (disabledTags.length > 0) {
           return false;
         }
-      } else if (hasDV && !isTagEnabled('DV')) {
+      } else if (hasDV && isTagDisabled('DV')) {
         return false;
       }
 
       // Check other visual tags for explicit disabling
       for (const tag of parsedStream.visualTags) {
         if (tag.startsWith('HDR') || tag === 'DV') continue;
-        if (isTagEnabled(tag) === false) {
-          return false;
-        }
+        if (isTagDisabled(tag)) return false;
       }
 
       // apply excludedLanguages filter
@@ -198,14 +196,16 @@ export class AIOStreams {
         return false;
       }
 
-      const audioTagFilter = parsedStream.audioTags.find(
-        (tag) => !this.config.audioTags.some((audioTag) => audioTag[tag])
+      const audioTagFilter = parsedStream.audioTags.find((tag) =>
+        this.config.audioTags.some((audioTag) => audioTag[tag] === false)
       );
       if (audioTagFilter) return false;
 
       if (
         parsedStream.encode &&
-        !this.config.encodes.some((encode) => encode[parsedStream.encode])
+        this.config.encodes.some(
+          (encode) => encode[parsedStream.encode] === false
+        )
       )
         return false;
 
@@ -950,6 +950,14 @@ export class AIOStreams {
       }
       case 'mediafusion': {
         return await getMediafusionStreams(
+          this.config,
+          addon.options,
+          streamRequest,
+          addonId
+        );
+      }
+      case 'stremio-jackett': {
+        return await getStremioJackettStreams(
           this.config,
           addon.options,
           streamRequest,
