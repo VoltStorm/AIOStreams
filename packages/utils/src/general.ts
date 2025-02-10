@@ -26,7 +26,11 @@ export function minifyConfig(obj: any, depth: number = 0): any {
     throw new Error('Max depth reached');
   }
   if (typeof obj !== 'object' || obj === null) {
-    if (Object.values(compressedConfigMap).includes(obj)) {
+    let valueToCheck = obj;
+    if (typeof obj === 'number') {
+      valueToCheck = obj.toString();
+    }
+    if (Object.values(compressedConfigMap).includes(valueToCheck)) {
       return `${obj}${MINIFY_SUFFIX}`;
     }
     return compressedConfigMap[obj] ?? obj;

@@ -62,28 +62,11 @@ export default {
 
       if (components.includes('stream')) {
         // when /stream is requested without config
-        /*
-        if (components.length < 4) {
-          return createJsonResponse(
-            errorResponse(
-              'You must configure this addon first',
-              url.origin,
-              '/configure'
-            )
-          );
-        }
-
-        const config = components[0];
-        const decodedPath = decodeURIComponent(url.pathname);
-
-        const streamMatch = /stream\/(movie|series)\/([^/]+)\.json/.exec(
-          decodedPath.replace(`/${config}`, '')
-        );
-        */
         let config = components[0];
         while (components.length > 4) {
           config += `/${components.splice(1, 1)[0]}`;
         }
+        config = decodeURIComponent(config);
         if (components.length < 4) {
           return createJsonResponse(
             errorResponse(

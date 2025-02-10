@@ -40,6 +40,7 @@ import Slider from '@/components/Slider';
 import CredentialInput from '@/components/CredentialInput';
 import CreateableSelect from '@/components/CreateableSelect';
 import MultiSelect from '@/components/MutliSelect';
+import InstallWindow from '@/components/InstallWindow';
 
 const version = addonPackage.version;
 
@@ -199,9 +200,6 @@ export default function Configure() {
     string[] | null
   >(null);
   const [disableButtons, setDisableButtons] = useState<boolean>(false);
-  const [manualManifestUrl, setManualManifestUrl] = useState<string | null>(
-    null
-  );
   const [maxMovieSizeSlider, setMaxMovieSizeSlider] = useState<number>(
     Settings.MAX_MOVIE_SIZE
   );
@@ -211,6 +209,7 @@ export default function Configure() {
   const [choosableAddons, setChoosableAddons] = useState<string[]>(
     addonDetails.map((addon) => addon.id)
   );
+  const [manifestUrl, setManifestUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // get config from the server
@@ -357,7 +356,7 @@ export default function Configure() {
         const base64Config = btoa(JSON.stringify(config));
         return {
           success: true,
-          manifest: `${protocol}//${root}/${base64Config}/manifest.json`,
+          manifest: `${protocol}//${root}/${encodeURIComponent(base64Config)}/manifest.json`,
           message: null,
         };
       } catch (base64Error: any) {
@@ -494,7 +493,10 @@ export default function Configure() {
       if (config.startsWith('E-')) {
         throw new Error('Encrypted Config Not Supported');
       } else {
-        decodedConfig = unminifyConfig(JSON.parse(atob(config)));
+        decodedConfig = JSON.parse(atob(decodeURIComponent(config)));
+        console.log('Decoded config', decodedConfig);
+        decodedConfig = unminifyConfig(decodedConfig);
+        console.log('Unminified config', decodedConfig);
       }
       return decodedConfig;
     }
@@ -1335,26 +1337,13 @@ export default function Configure() {
                     setDisableButtons(false);
                     return;
                   }
-                  // replace https?:// with stremio://
-                  const installUrl = manifest.replace(
-                    /https?:\/\//,
-                    'stremio://'
-                  );
                   toast.update(id, {
                     render: 'Manifest URL generated',
                     type: 'success',
                     autoClose: 5000,
                     isLoading: false,
                   });
-                  try {
-                    const response = window.open(installUrl, '_blank');
-                    if (!response) {
-                      throw new Error('Failed to open window');
-                    }
-                  } catch (error) {
-                    console.error('Failed to open manifest URL', error);
-                    setManualManifestUrl(installUrl);
-                  }
+                  setManifestUrl(manifest);
                   setDisableButtons(false);
                 })
                 .catch(() => {
@@ -1369,178 +1358,12 @@ export default function Configure() {
                 });
             }}
           >
-            Install
+            Generate Manifest URL
           </button>
-          <button
-            className={styles.installButton}
-            disabled={disableButtons}
-            onClick={() => {
-              setDisableButtons(true);
-              const id = toast.loading('Generating manifest URL...', {
-                ...toastOptions,
-                toastId: 'generatingManifestUrl',
-              });
-              getManifestUrl()
-                .then((value) => {
-                  const { success, manifest, message } = value;
-                  if (!success || !manifest) {
-                    toast.update(id, {
-                      render: message || 'Failed to generate manifest URL',
-                      type: 'error',
-                      autoClose: 5000,
-                      isLoading: false,
-                    });
-                    setDisableButtons(false);
-                    return;
-                  }
-                  // replace https?:// with stremio://
-                  const installUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(manifest)}`;
-                  toast.update(id, {
-                    render: 'Add-on URL generated, opening Stremio Web...',
-                    type: 'info',
-                    isLoading: true,
-                  });
-                  try {
-                    const response = window.open(installUrl, '_blank');
-                    if (!response) {
-                      throw new Error('Failed to open window');
-                    }
-                    toast.update(id, {
-                      render: 'Opened Stremio Web',
-                      type: 'success',
-                      autoClose: 5000,
-                      isLoading: false,
-                    });
-                  } catch (error) {
-                    console.error('Failed to open manifest URL', error);
-                    toast.update(id, {
-                      render: 'Failed to open Stremio Web',
-                      type: 'error',
-                      autoClose: 5000,
-                      isLoading: false,
-                    });
-                    setManualManifestUrl(installUrl);
-                  }
-                  setDisableButtons(false);
-                })
-                .catch((error: any) => {
-                  setDisableButtons(false);
-                  console.error('Failed to generate manifest URL', error);
-                  toast.update(id, {
-                    render:
-                      'An unknown error occurred while attempting to install to Stremio Web',
-                    type: 'error',
-                    autoClose: 5000,
-                    isLoading: false,
-                  });
-                });
-            }}
-          >
-            Install to Stremio Web
-          </button>
-          <button
-            className={styles.installButton}
-            disabled={disableButtons}
-            onClick={() => {
-              setDisableButtons(true);
-              const id = toast.loading('Generating manifest URL...', {
-                ...toastOptions,
-                toastId: 'generatingManifestUrl',
-              });
-              getManifestUrl()
-                .then((value) => {
-                  const { success, manifest, message } = value;
-                  if (!success || !manifest) {
-                    toast.update(id, {
-                      render: message || 'Failed to generate manifest URL',
-                      type: 'error',
-                      autoClose: 5000,
-                      isLoading: false,
-                    });
-                    setDisableButtons(false);
-                    return;
-                  }
-
-                  toast.update(id, {
-                    render: 'Manifest URL generated',
-                    type: 'success',
-                    autoClose: 5000,
-                    isLoading: false,
-                  });
-                  if (!navigator.clipboard) {
-                    toast.update(id, {
-                      render:
-                        'The clipboard API is unavailable. Please copy the manifest URL manually from the bottom of the page',
-                      type: 'warning',
-                      autoClose: 5000,
-                      isLoading: false,
-                    });
-                    setManualManifestUrl(manifest);
-                    setDisableButtons(false);
-                    return;
-                  }
-                  navigator.clipboard
-                    .writeText(manifest)
-                    .then(() => {
-                      toast.update(id, {
-                        render: 'Manifest URL copied to clipboard',
-                        type: 'success',
-                        autoClose: 5000,
-                        isLoading: false,
-                      });
-                      setDisableButtons(false);
-                    })
-                    .catch((error: any) => {
-                      console.error('Failed to copy manifest URL', error);
-                      toast.update(id, {
-                        render:
-                          'An unexpected error occurred while copying the manifest URL',
-                        type: 'error',
-                        autoClose: 5000,
-                        isLoading: false,
-                      });
-                      setManualManifestUrl(manifest);
-                      setDisableButtons(false);
-                    });
-                })
-                .catch(() => {
-                  toast.update(id, {
-                    render:
-                      'An unexpected error occurred while generating the manifest URL',
-                    type: 'error',
-                    autoClose: 5000,
-                    isLoading: false,
-                  });
-
-                  setDisableButtons(false);
-                });
-            }}
-          >
-            Copy Link
-          </button>
-          {manualManifestUrl && (
-            <>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                }}
-              >
-                <p style={{ padding: '5px' }}>
-                  If the above buttons do not work, you can use the following
-                  manifest URL to install the addon.
-                </p>
-                <input
-                  id="manualManifestUrl"
-                  type="text"
-                  value={manualManifestUrl}
-                  readOnly
-                  style={{ width: '100%', padding: '5px', margin: '5px' }}
-                />
-              </div>
-            </>
-          )}
+          <InstallWindow
+            manifestUrl={manifestUrl}
+            setManifestUrl={setManifestUrl}
+          />
         </div>
       </div>
       <ToastContainer
