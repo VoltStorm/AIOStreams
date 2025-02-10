@@ -384,7 +384,10 @@ export class AIOStreams {
     // then apply our this.config sorting
     filteredResults.sort((a, b) => {
       for (const sortByField of this.config.sortBy) {
-        const field = Object.keys(sortByField)[0];
+        const field = Object.keys(sortByField).find(
+          (key) => typeof sortByField[key] === 'boolean'
+        );
+        if (!field) continue;
         const value = sortByField[field];
 
         if (value) {
@@ -613,7 +616,7 @@ export class AIOStreams {
           ? `🎲 ${name}`
           : name,
       description: this.config.addonNameInDescription
-        ? `🎲 ${name}\n${description}`
+        ? `🎲 ${name.split('\n').join(' ')}\n${description}`
         : description,
       subtitles: parsedStream.stream?.subtitles,
       sources: parsedStream.torrent?.sources,
@@ -869,12 +872,14 @@ export class AIOStreams {
     const parsedStreams: ParsedStream[] = [];
     const errorStreams: ErrorStream[] = [];
     const formatError = (error: string) =>
-      error
-        .replace(/- |: /g, '\n')
-        .split('\n')
-        .map((line: string) => line.trim())
-        .join('\n')
-        .trim();
+      typeof error === 'string'
+        ? error
+            .replace(/- |: /g, '\n')
+            .split('\n')
+            .map((line: string) => line.trim())
+            .join('\n')
+            .trim()
+        : error;
 
     const addonPromises = this.config.addons.map(async (addon) => {
       const addonName =
@@ -905,7 +910,7 @@ export class AIOStreams {
           `|ERR| addon > getParsedStreams: Failed to get streams from ${addonName}: ${error}`
         );
         errorStreams.push({
-          error: formatError(error.message),
+          error: formatError(error.message ?? error ?? 'Unknown error'),
           addon: {
             id: addonId,
             name: addonName,

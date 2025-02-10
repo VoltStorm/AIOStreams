@@ -39,9 +39,6 @@ export class StremioJackett extends BaseWrapper {
       parseResult.type === 'stream' &&
       stream.url.includes('/playback/')
     ) {
-      console.log(
-        `|INF| wrappers > stremioJackett: Parsing stream ${stream.url}`
-      );
       try {
         const parsedStream = parseResult.result;
         const components = stream.url.split('/playback/')[1].split('/');
@@ -56,10 +53,16 @@ export class StremioJackett extends BaseWrapper {
         }
         parseResult.result = parsedStream;
       } catch (e) {
-        console.error(
-          `|ERR| wrappers > stremioJackett: Error parsing stream ${stream.url}`
-        );
-        console.error(e);
+        let url = new URL(stream.url);
+        if (!Settings.LOG_SENSITIVE_INFO) {
+          const components = url.pathname.split('/');
+          if (components.length > 2) {
+            components[2] = '<redacted>';
+            url.pathname = components.join('/');
+          }
+        }
+        console.error(`
+          |ERR| wrappers > stremioJackett: Error parsing stream config for ${url}`);
       }
     }
     return parseResult;

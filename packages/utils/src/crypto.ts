@@ -6,6 +6,7 @@ import {
 } from 'crypto';
 import { deflateSync, inflateSync } from 'zlib';
 import { Settings } from './settings';
+import JSONCrush from 'jsoncrush';
 
 const pad = (data: Buffer, blockSize: number): Buffer => {
   const padding = blockSize - (data.length % blockSize);
@@ -18,8 +19,12 @@ const unpad = (data: Buffer): Buffer => {
 };
 
 export const compressAndEncrypt = (data: string): string => {
+  // compress it with jsoncrush
+  const crushedData = JSONCrush.crush(data);
   // First compress the data with Deflate compression
-  const compressedData = deflateSync(Buffer.from(data, 'utf-8'), { level: 9 });
+  const compressedData = deflateSync(Buffer.from(crushedData, 'utf-8'), {
+    level: 9,
+  });
   const secretKey = Settings.SECRET_KEY;
   if (!secretKey) {
     console.error('|ERR| crypto > compressAndEncrypt > No secret key provided');
@@ -36,12 +41,14 @@ export const compressAndEncrypt = (data: string): string => {
     cipher.update(paddedData),
     cipher.final(),
   ]);
-  return `E-${iv.toString('hex')}-${encryptedData.toString('hex')}`;
+  const finalString = `E2-${encodeURIComponent(iv.toString('base64'))}-${encodeURIComponent(encryptedData.toString('base64'))}`;
+  return finalString;
 };
 
 export const decryptAndDecompress = (
   encryptedData: Buffer,
-  iv: Buffer
+  iv: Buffer,
+  eVersion: number
 ): string => {
   const secretKey = Settings.SECRET_KEY;
   if (!secretKey) {
@@ -63,17 +70,25 @@ export const decryptAndDecompress = (
 
   // Decompress the data with Deflate decompression
   const decompressedData = inflateSync(decryptedData);
-
+  if (eVersion === 2) {
+    return JSONCrush.uncrush(decompressedData.toString('utf-8'));
+  }
   return decompressedData.toString('utf-8');
 };
 
 export function parseAndDecryptString(data: string): string | null {
   try {
-    if (data.startsWith('E-')) {
-      const [ivHex, encryptedHex] = data.replace('E-', '').split('-');
-      const iv = Buffer.from(ivHex, 'hex');
-      const encrypted = Buffer.from(encryptedHex, 'hex');
-      return decryptAndDecompress(encrypted, iv);
+    if (data.startsWith('E-') || data.startsWith('E2-')) {
+      const eVersion = data.startsWith('E2-') ? 2 : 1;
+      const encoding = eVersion === 1 ? 'hex' : 'base64';
+      const [ivHex, encryptedHex] = data
+        .replace('E-', '')
+        .replace('E2-', '')
+        .split('-')
+        .map(decodeURIComponent);
+      const iv = Buffer.from(ivHex, encoding);
+      const encrypted = Buffer.from(encryptedHex, encoding);
+      return decryptAndDecompress(encrypted, iv, eVersion);
     }
     return data;
   } catch (error: any) {

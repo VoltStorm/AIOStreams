@@ -195,9 +195,11 @@ export class BaseWrapper {
       let message = error.message;
       if (error.name === 'TimeoutError') {
         message = `The stream request to ${this.addonName} timed out after ${this.indexerTimeout}ms`;
+        return Promise.reject(new Error(message));
       }
       console.error(`|ERR| wrappers > base > ${this.addonName}: ${message}`);
-      return Promise.reject(new Error(message));
+      console.error(error);
+      return Promise.reject(error.message);
     }
   }
 

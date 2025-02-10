@@ -12,6 +12,7 @@ import {
   compressAndEncrypt,
   parseAndDecryptString,
   Cache,
+  unminifyConfig,
 } from '@aiostreams/utils';
 
 const app = express();
@@ -73,7 +74,7 @@ app.use((req, res, next) => {
   res.append('Access-Control-Allow-Origin', '*');
   res.append('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
   console.log(
-    `|DBG| server > ${req.method} ${req.path.replace(/\/eyJ[\w\=]+/g, '/*******').replace(/\/E-[\w-]+/g, '/*******')}`
+    `|DBG| server > ${req.method} ${req.path.replace(/\/eyJ[\w\=]+/g, '/*******').replace(/\/E2?-[\w-\%]+/g, '/*******')}`
   );
   next();
 });
@@ -109,7 +110,9 @@ app.get('/:config/configure', (req, res) => {
     );
   }
   try {
-    const configJson = encryptInfoInConfig(extractJsonConfig(config));
+    const configJson = encryptInfoInConfig(
+      unminifyConfig(extractJsonConfig(config))
+    );
     const base64Config = Buffer.from(JSON.stringify(configJson)).toString(
       'base64'
     );
@@ -130,7 +133,7 @@ app.get('/:config/manifest.json', (req, res) => {
   try {
     configJson = extractJsonConfig(config);
     console.log(`|DBG| server > Extracted config for manifest request`);
-    configJson = decryptEncryptedInfoFromConfig(configJson);
+    configJson = unminifyConfig(decryptEncryptedInfoFromConfig(configJson));
     if (Settings.LOG_SENSITIVE_INFO) {
       console.log(`|DBG| server > Final config: ${JSON.stringify(configJson)}`);
     }
@@ -172,7 +175,7 @@ app.get('/:config/stream/:type/:id.json', (req, res: Response): void => {
   try {
     configJson = extractJsonConfig(config);
     console.log(`|DBG| server > Extracted config for stream request`);
-    configJson = decryptEncryptedInfoFromConfig(configJson);
+    configJson = decryptEncryptedInfoFromConfig(unminifyConfig(configJson));
     if (Settings.LOG_SENSITIVE_INFO) {
       console.log(`|DBG| server > Final config: ${JSON.stringify(configJson)}`);
     }
@@ -311,7 +314,11 @@ app.listen(Settings.PORT, () => {
 });
 
 function extractJsonConfig(config: string): Config {
-  if (config.startsWith('E-') || config.startsWith('eyJ')) {
+  if (
+    config.startsWith('E-') ||
+    config.startsWith('eyJ') ||
+    config.startsWith('E2-')
+  ) {
     return extractEncryptedOrEncodedConfig(config, 'Config');
   }
   if (CUSTOM_CONFIGS) {
@@ -501,7 +508,11 @@ function decryptValue(value: any, label: string): any {
 }
 
 function isValueEncrypted(value: string | undefined): boolean {
-  return value ? /^E-[0-9a-fA-F]{32}-[0-9a-fA-F]+$/.test(value) : false;
+  if (!value) return false;
+  const tests =
+    /^E2-[^-]+-[^-]+$/.test(value) ||
+    /^E-[0-9a-fA-F]{32}-[0-9a-fA-F]+$/.test(value);
+  return tests;
 }
 
 const rootUrl = (req: Request) =>

@@ -2,7 +2,7 @@ import { Config } from '@aiostreams/types';
 import { version, description } from '../package.json';
 import { getTextHash, Settings } from '@aiostreams/utils';
 
-const manifest = (config?: Config) => {
+const manifest = (config?: Config, configPresent?: boolean) => {
   let addonId = Settings.ADDON_ID;
   if (config && Settings.DETERMINISTIC_ADDON_ID) {
     addonId =
@@ -21,7 +21,7 @@ const manifest = (config?: Config) => {
     types: ['movie', 'series'],
     behaviorHints: {
       configurable: true,
-      configurationRequired: config ? false : true,
+      configurationRequired: config || configPresent ? false : true,
     },
   };
 };
