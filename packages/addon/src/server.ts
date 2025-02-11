@@ -9,11 +9,16 @@ import { errorResponse } from './responses';
 import {
   Settings,
   addonDetails,
-  compressAndEncrypt,
   parseAndDecryptString,
   Cache,
   unminifyConfig,
   minifyConfig,
+  crushJson,
+  compressData,
+  encryptData,
+  decompressData,
+  decryptData,
+  uncrushJson,
 } from '@aiostreams/utils';
 
 const app = express();
@@ -111,15 +116,17 @@ app.get('/:config/configure', (req, res) => {
     );
   }
   try {
-    // unminify so we can encrypt the sensitive info
-    // and then minify it again before sending it to the frontend
-    const configJson = minifyConfig(
-      encryptInfoInConfig(unminifyConfig(extractJsonConfig(config)))
-    );
+    let configJson = extractJsonConfig(config);
+    if (config.startsWith('E-') || config.startsWith('E2-')) {
+      console.log(
+        `|DBG| server > Encrypted config detected, encrypting credentials`
+      );
+      configJson = encryptInfoInConfig(configJson);
+    }
     const base64Config = Buffer.from(JSON.stringify(configJson)).toString(
       'base64'
     );
-    res.redirect(`/${base64Config}/configure`);
+    res.redirect(`/${encodeURIComponent(base64Config)}/configure`);
   } catch (error: any) {
     console.error(`|ERR| server > Failed to extract config: ${error.message}`);
     res.status(400).send('Invalid config');
@@ -136,7 +143,7 @@ app.get('/:config/manifest.json', (req, res) => {
   try {
     configJson = extractJsonConfig(config);
     console.log(`|DBG| server > Extracted config for manifest request`);
-    configJson = unminifyConfig(decryptEncryptedInfoFromConfig(configJson));
+    configJson = decryptEncryptedInfoFromConfig(configJson);
     if (Settings.LOG_SENSITIVE_INFO) {
       console.log(`|DBG| server > Final config: ${JSON.stringify(configJson)}`);
     }
@@ -178,7 +185,7 @@ app.get('/:config/stream/:type/:id.json', (req, res: Response): void => {
   try {
     configJson = extractJsonConfig(config);
     console.log(`|DBG| server > Extracted config for stream request`);
-    configJson = decryptEncryptedInfoFromConfig(unminifyConfig(configJson));
+    configJson = decryptEncryptedInfoFromConfig(configJson);
     if (Settings.LOG_SENSITIVE_INFO) {
       console.log(`|DBG| server > Final config: ${JSON.stringify(configJson)}`);
     }
@@ -262,35 +269,66 @@ app.get('/:config/stream/:type/:id.json', (req, res: Response): void => {
 
 app.post('/encrypt-user-data', (req, res) => {
   const { data } = req.body;
-
+  let finalString: string = '';
   if (!data) {
     console.error('|ERR| server > /encrypt-user-data: No data provided');
-    res.status(400).json({ success: false, message: 'No data provided' });
+    res.json({ success: false, message: 'No data provided' });
+    return;
+  }
+  // First, validate the config
+  try {
+    const config = JSON.parse(data);
+    const { valid, errorCode, errorMessage } = validateConfig(config);
+    if (!valid) {
+      console.error(
+        `|ERR| server > generateConfig: Invalid config: ${errorCode} - ${errorMessage}`
+      );
+      res.json({ success: false, message: errorMessage, error: errorMessage });
+      return;
+    }
+  } catch (error: any) {
+    console.error(
+      `|ERR| server > /encrypt-user-data: Invalid JSON: ${error.message}`
+    );
+    res.json({ success: false, message: 'Malformed configuration' });
     return;
   }
 
   try {
+    const minified = minifyConfig(JSON.parse(data));
+    const crushed = crushJson(JSON.stringify(minified));
+    const compressed = compressData(crushed);
     if (!Settings.SECRET_KEY) {
-      console.error('|ERR| server > /encrypt-user-data: Secret key not set');
-      res.status(500).json({ success: false, message: 'Secret key not set' });
-      return;
+      // use base64 encoding if no secret key is set
+      finalString = `B-${encodeURIComponent(compressed.toString('base64'))}`;
+    } else {
+      const { iv, data } = encryptData(compressed);
+      finalString = `E2-${encodeURIComponent(iv)}-${encodeURIComponent(data)}`;
     }
-    const { valid, errorCode, errorMessage } = validateConfig(JSON.parse(data));
-    if (!valid) {
-      console.error(
-        `|ERR| server > /encrypt-user-data: Invalid config: ${errorCode} - ${errorMessage}`
-      );
-      res
-        .status(200)
-        .json({ success: false, message: errorMessage, error: errorMessage });
-      return;
-    }
-    const encryptedData = compressAndEncrypt(data);
-    console.log(`|DBG| server > /encrypt-user-data: Encrypted data`);
-    res.status(200).json({ success: true, data: encryptedData });
+
+    console.log(
+      `|INF| server > /encrypt-user-data: Encrypted user data, compression report:`
+    );
+    console.log(`+--------------------------------------------+`);
+    console.log(`| Original:         ${data.length} bytes`);
+    console.log(`| URL Encoded:      ${encodeURIComponent(data).length} bytes`);
+    console.log(`| Minified:         ${JSON.stringify(minified).length} bytes`);
+    console.log(`| Crushed:          ${crushed.length} bytes`);
+    console.log(`| Compressed:       ${compressed.length} bytes`);
+    console.log(`| Final String:     ${finalString.length} bytes`);
+    console.log(
+      `| Ratio:            ${((finalString.length / data.length) * 100).toFixed(2)}%`
+    );
+    console.log(
+      `| Reduction:        ${data.length - compressed.length} bytes (${(((data.length - compressed.length) / data.length) * 100).toFixed(2)}%)`
+    );
+    console.log(`+--------------------------------------------+`);
+
+    res.json({ success: true, data: finalString });
   } catch (error: any) {
     console.error(`|ERR| server > /encrypt-user-data: ${error.message}`);
-    res.status(500).json({ success: false, message: error.message });
+    console.error(error);
+    res.json({ success: false, message: error.message });
   }
 });
 
@@ -321,7 +359,8 @@ function extractJsonConfig(config: string): Config {
     config.startsWith('E-') ||
     config.startsWith('eyJ') ||
     config.startsWith('eyI') ||
-    config.startsWith('E2-')
+    config.startsWith('E2-') ||
+    config.startsWith('B-')
   ) {
     return extractEncryptedOrEncodedConfig(config, 'Config');
   }
@@ -348,14 +387,52 @@ function extractEncryptedOrEncodedConfig(
   config: string,
   label: string
 ): Config {
-  let decodedConfig: string;
+  let decodedConfig: Config;
   try {
-    decodedConfig = isValueEncrypted(config)
-      ? decryptValue(config, `${label} (encrypted)`)
-      : Buffer.from(config, 'base64').toString('utf-8');
-    return JSON.parse(decodedConfig);
+    if (config.startsWith('E-')) {
+      // compressed and encrypted (hex)
+      console.log(`|DBG| server > Extracting encrypted (v1) config`);
+      const parts = config.split('-');
+      if (parts.length !== 3) {
+        throw new Error('Invalid encrypted config format');
+      }
+      const iv = Buffer.from(decodeURIComponent(parts[1]), 'hex');
+      const data = Buffer.from(decodeURIComponent(parts[2]), 'hex');
+      decodedConfig = JSON.parse(decompressData(decryptData(data, iv)));
+    } else if (config.startsWith('E2-')) {
+      // minified, crushed, compressed and encrypted (base64)
+      console.log(`|DBG| server > Extracting encrypted (v2) config`);
+      const parts = config.split('-');
+      if (parts.length !== 3) {
+        throw new Error('Invalid encrypted config format');
+      }
+      const iv = Buffer.from(decodeURIComponent(parts[1]), 'base64');
+      const data = Buffer.from(decodeURIComponent(parts[2]), 'base64');
+      const compressedCrushedJson = decryptData(data, iv);
+      const crushedJson = decompressData(compressedCrushedJson);
+      const minifiedConfig = uncrushJson(crushedJson);
+      decodedConfig = unminifyConfig(JSON.parse(minifiedConfig));
+    } else if (config.startsWith('B-')) {
+      // minifed, crushed, compressed, base64 encoded
+      console.log(
+        `|DBG| server > Extracting base64 encoded and compressed config`
+      );
+      decodedConfig = unminifyConfig(
+        JSON.parse(
+          uncrushJson(decompressData(Buffer.from(config.slice(2), 'base64')))
+        )
+      );
+    } else {
+      // plain base64 encoded
+      console.log(`|DBG| server > Extracting plain base64 encoded config`);
+      decodedConfig = JSON.parse(
+        Buffer.from(config, 'base64').toString('utf-8')
+      );
+    }
+    return decodedConfig;
   } catch (error: any) {
     console.error(`|ERR| Failed to parse ${label}: ${error.message}`);
+    console.error(error);
     throw new Error(`Failed to parse ${label}`);
   }
 }
@@ -488,9 +565,10 @@ function processObjectValues(
 }
 
 function encryptValue(value: any, label: string): any {
-  if (!isValueEncrypted(value)) {
+  if (value && !isValueEncrypted(value)) {
     try {
-      return compressAndEncrypt(value);
+      const { iv, data } = encryptData(compressData(value));
+      return `E2-${iv}-${data}`;
     } catch (error: any) {
       console.error(`Failed to encrypt ${label}`);
       return '';

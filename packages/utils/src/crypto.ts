@@ -18,13 +18,25 @@ const unpad = (data: Buffer): Buffer => {
   return data.subarray(0, data.length - padding);
 };
 
-export const compressAndEncrypt = (data: string): string => {
-  // compress it with jsoncrush
-  const crushedData = JSONCrush.crush(data);
-  // First compress the data with Deflate compression
-  const compressedData = deflateSync(Buffer.from(crushedData, 'utf-8'), {
+export const crushJson = (data: string): string => {
+  return JSONCrush.crush(data);
+};
+
+export const uncrushJson = (data: string): string => {
+  return JSONCrush.uncrush(data);
+};
+
+export const compressData = (data: string): Buffer => {
+  return deflateSync(Buffer.from(data, 'utf-8'), {
     level: 9,
   });
+};
+
+export const decompressData = (data: Buffer): string => {
+  return inflateSync(data).toString('utf-8');
+};
+
+export const encryptData = (data: Buffer): { iv: string; data: string } => {
   const secretKey = Settings.SECRET_KEY;
   if (!secretKey) {
     console.error('|ERR| crypto > compressAndEncrypt > No secret key provided');
@@ -36,20 +48,19 @@ export const compressAndEncrypt = (data: string): string => {
   const cipher = createCipheriv('aes-256-cbc', secretKey, iv);
 
   // Ensure proper padding
-  const paddedData = pad(compressedData, 16);
+  const paddedData = pad(data, 16);
   const encryptedData = Buffer.concat([
     cipher.update(paddedData),
     cipher.final(),
   ]);
-  const finalString = `E2-${encodeURIComponent(iv.toString('base64'))}-${encodeURIComponent(encryptedData.toString('base64'))}`;
-  return finalString;
+
+  return {
+    iv: iv.toString('base64'),
+    data: encryptedData.toString('base64'),
+  };
 };
 
-export const decryptAndDecompress = (
-  encryptedData: Buffer,
-  iv: Buffer,
-  eVersion: number
-): string => {
+export const decryptData = (encryptedData: Buffer, iv: Buffer): Buffer => {
   const secretKey = Settings.SECRET_KEY;
   if (!secretKey) {
     console.error(
@@ -68,12 +79,7 @@ export const decryptAndDecompress = (
   // Remove padding
   const decryptedData = unpad(decryptedPaddedData);
 
-  // Decompress the data with Deflate decompression
-  const decompressedData = inflateSync(decryptedData);
-  if (eVersion === 2) {
-    return JSONCrush.uncrush(decompressedData.toString('utf-8'));
-  }
-  return decompressedData.toString('utf-8');
+  return decryptedData;
 };
 
 export function parseAndDecryptString(data: string): string | null {
@@ -88,7 +94,9 @@ export function parseAndDecryptString(data: string): string | null {
         .map(decodeURIComponent);
       const iv = Buffer.from(ivHex, encoding);
       const encrypted = Buffer.from(encryptedHex, encoding);
-      return decryptAndDecompress(encrypted, iv, eVersion);
+      const decrypted = decryptData(encrypted, iv);
+      const decompressed = decompressData(decrypted);
+      return decompressed;
     }
     return data;
   } catch (error: any) {

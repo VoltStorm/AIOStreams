@@ -266,10 +266,12 @@ export class AIOStreams {
       if (
         this.config.excludeFilters &&
         this.config.excludeFilters.length > 0 &&
-        parsedStream.filename &&
         excludeRegex
       ) {
-        if (excludeRegex.test(parsedStream.filename)) {
+        if (parsedStream.filename && excludeRegex.test(parsedStream.filename)) {
+          return false;
+        }
+        if (parsedStream.indexers && excludeRegex.test(parsedStream.indexers)) {
           return false;
         }
       }
@@ -277,10 +279,18 @@ export class AIOStreams {
       if (
         this.config.strictIncludeFilters &&
         this.config.strictIncludeFilters.length > 0 &&
-        parsedStream.filename &&
         strictIncludeRegex
       ) {
-        if (!strictIncludeRegex.test(parsedStream.filename)) {
+        if (
+          parsedStream.filename &&
+          !strictIncludeRegex.test(parsedStream.filename)
+        ) {
+          return false;
+        }
+        if (
+          parsedStream.indexers &&
+          !strictIncludeRegex.test(parsedStream.indexers)
+        ) {
           return false;
         }
       }

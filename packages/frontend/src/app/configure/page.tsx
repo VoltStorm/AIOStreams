@@ -28,13 +28,7 @@ import {
   allowedLanguages,
   validateConfig,
 } from '@aiostreams/config';
-import {
-  addonDetails,
-  minifyConfig,
-  serviceDetails,
-  Settings,
-  unminifyConfig,
-} from '@aiostreams/utils';
+import { addonDetails, serviceDetails, Settings } from '@aiostreams/utils';
 
 import Slider from '@/components/Slider';
 import CredentialInput from '@/components/CredentialInput';
@@ -199,6 +193,8 @@ export default function Configure() {
   const [mediaFlowProxiedServices, setMediaFlowProxiedServices] = useState<
     string[] | null
   >(null);
+  const [overrideName, setOverrideName] = useState<string>('');
+
   const [disableButtons, setDisableButtons] = useState<boolean>(false);
   const [maxMovieSizeSlider, setMaxMovieSizeSlider] = useState<number>(
     Settings.MAX_MOVIE_SIZE
@@ -233,6 +229,7 @@ export default function Configure() {
 
   const createConfig = (): Config => {
     const config = {
+      overrideName,
       streamTypes,
       resolutions,
       qualities,
@@ -270,7 +267,7 @@ export default function Configure() {
       addons,
       services,
     };
-    return minifyConfig(config);
+    return config;
   };
 
   const fetchWithTimeout = async (
@@ -334,39 +331,25 @@ export default function Configure() {
           return {
             success: false,
             manifest: null,
-            message: data.error || 'Failed to encrypt config',
+            message: data.error || 'Failed to generate config',
           };
         }
         throw new Error(`Encryption service failed, ${data.message}`);
       }
 
-      const encryptedConfig = data.data;
+      const configString = data.data;
       return {
         success: true,
-        manifest: `${protocol}//${root}/${encryptedConfig}/manifest.json`,
+        manifest: `${protocol}//${root}/${configString}/manifest.json`,
         message: null,
       };
     } catch (error: any) {
-      console.error(
-        'Error during encryption:',
-        error.message || 'Unknown error',
-        '\nFalling back to base64 encoding'
-      );
-      try {
-        const base64Config = btoa(JSON.stringify(config));
-        return {
-          success: true,
-          manifest: `${protocol}//${root}/${encodeURIComponent(base64Config)}/manifest.json`,
-          message: null,
-        };
-      } catch (base64Error: any) {
-        console.error('Error during base64 encoding:', base64Error.message);
-        return {
-          success: false,
-          manifest: null,
-          message: 'Failed to encode config',
-        };
-      }
+      console.error(error);
+      return {
+        success: false,
+        manifest: null,
+        message: error.message || 'Failed to encrypt config',
+      };
     }
   };
 
@@ -490,13 +473,14 @@ export default function Configure() {
   useEffect(() => {
     async function decodeConfig(config: string) {
       let decodedConfig: Config;
-      if (config.startsWith('E-')) {
+      if (
+        config.startsWith('E-') ||
+        config.startsWith('E2-') ||
+        config.startsWith('B-')
+      ) {
         throw new Error('Encrypted Config Not Supported');
       } else {
         decodedConfig = JSON.parse(atob(decodeURIComponent(config)));
-        console.log('Decoded config', decodedConfig);
-        decodedConfig = unminifyConfig(decodedConfig);
-        console.log('Unminified config', decodedConfig);
       }
       return decodedConfig;
     }
@@ -648,7 +632,26 @@ export default function Configure() {
             style={{ display: 'block', margin: '0 auto' }}
           />
           <div style={{ position: 'relative', display: 'inline-block' }}>
-            <h1 style={{ textAlign: 'center' }}>AIOStreams</h1>
+            <input
+              type="text"
+              value={overrideName || 'AIOStreams'}
+              onChange={(e) => setOverrideName(e.target.value)}
+              style={{
+                border: 'none',
+                backgroundColor: 'black',
+                color: 'white',
+                fontWeight: 'bold',
+                background: 'black',
+                height: '30px',
+                textAlign: 'center',
+                fontSize: '30px',
+                padding: '0',
+                maxWidth: '300px',
+                width: 'auto',
+                margin: '0 auto',
+              }}
+              size={overrideName?.length < 8 ? 8 : overrideName?.length || 8}
+            ></input>
             <span
               className={styles.version}
               title={`See what's new in v${version}`}
@@ -1346,7 +1349,8 @@ export default function Configure() {
                   setManifestUrl(manifest);
                   setDisableButtons(false);
                 })
-                .catch(() => {
+                .catch((error: any) => {
+                  console.error(error);
                   toast.update(id, {
                     render:
                       'An unexpected error occurred while generating the manifest URL',

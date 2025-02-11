@@ -21,42 +21,54 @@ const MINIFY_SUFFIX = '__ignore';
 const MAX_DEPTH = 50;
 const MAX_KEYS = 200;
 
-export function minifyConfig(obj: any, depth: number = 0): any {
+export function minifyConfig(config: any) {
+  // if already minified, return
+  if (config.a) return config;
+  const minifiedConfig = minifyObj(config);
+  return minifiedConfig;
+}
+
+export function unminifyConfig(config: any) {
+  // if not minified, return
+
+  if (config.a === undefined) return config;
+  const unminifiedConfig = unminifyObj(config);
+  return unminifiedConfig;
+}
+
+export function minifyObj(obj: any, depth: number = 0): any {
   if (depth > MAX_DEPTH) {
     throw new Error('Max depth reached');
   }
   if (typeof obj !== 'object' || obj === null) {
     let valueToCheck = obj;
-    if (typeof obj === 'number') {
-      valueToCheck = obj.toString();
-    }
     if (Object.values(compressedConfigMap).includes(valueToCheck)) {
       return `${obj}${MINIFY_SUFFIX}`;
     }
-    return compressedConfigMap[obj] ?? obj;
+    const minifiedValue = compressedConfigMap[obj] ?? obj;
+    return minifiedValue;
   }
 
   if (Array.isArray(obj)) {
     if (obj.length > MAX_KEYS) {
       throw new Error('Max keys reached');
     }
-    return obj.map((item) => minifyConfig(item, depth + 1));
+    return obj.map((item) => minifyObj(item, depth + 1));
   }
-  console.log('Object.keys(obj).length', Object.keys(obj).length);
-  if (Object.keys(obj).length > MAX_KEYS) {
+  if (Object.keys(obj)?.length > MAX_KEYS) {
     throw new Error('Max keys reached');
   }
 
-  return Object.fromEntries(
-    Object.entries(obj).map(([key, value]) => {
-      const newKey = compressedConfigMap[key] ?? key;
-      const newValue = minifyConfig(value, depth + 1);
-      return [newKey, newValue];
-    })
-  );
+  const entries = Object.entries(obj).map(([key, value]) => {
+    const newKey = compressedConfigMap[key] ?? key;
+    const newValue = minifyObj(value, depth + 1);
+    return [newKey, newValue];
+  });
+  const newObj = Object.fromEntries(entries);
+  return newObj;
 }
 
-export function unminifyConfig(obj: any, depth: number = 0): any {
+export function unminifyObj(obj: any, depth: number = 0): any {
   if (depth > MAX_DEPTH) {
     throw new Error('Max depth reached');
   }
@@ -80,17 +92,17 @@ export function unminifyConfig(obj: any, depth: number = 0): any {
     if (obj.length > MAX_KEYS) {
       throw new Error('Max keys reached');
     }
-    return obj.map((item) => unminifyConfig(item, depth + 1));
+    return obj.map((item) => unminifyObj(item, depth + 1));
   }
 
-  if (Object.keys(obj).length > MAX_KEYS) {
+  if (Object.keys(obj)?.length > MAX_KEYS) {
     throw new Error('Max keys reached');
   }
 
   return Object.fromEntries(
     Object.entries(obj).map(([key, value]) => {
       const originalKey = reversedMap[key] ?? key;
-      const originalValue = unminifyConfig(value, depth + 1);
+      const originalValue = unminifyObj(value, depth + 1);
       return [originalKey, originalValue];
     })
   );

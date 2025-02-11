@@ -34,11 +34,33 @@ export default {
         return env.ASSETS.fetch(request);
       }
 
+      if (url.pathname === '/icon.ico') {
+        return env.ASSETS.fetch(request);
+      }
+
       // redirect to /configure if root path is requested
       if (url.pathname === '/') {
         return Response.redirect(url.origin + '/configure', 301);
       }
 
+      // handle /encrypt-user-data POST requests
+      if (components.includes('encrypt-user-data')) {
+        const data = (await request.json()) as { data: string };
+        if (!data) {
+          return createResponse('Invalid Request', 400);
+        }
+        const dataToEncode = data.data;
+        try {
+          console.log(
+            `Received /encrypt-user-data request with Data: ${dataToEncode}`
+          );
+          const encodedData = Buffer.from(dataToEncode).toString('base64');
+          return createJsonResponse({ data: encodedData, success: true });
+        } catch (error: any) {
+          console.error(error);
+          return createJsonResponse({ error: error.message, success: false });
+        }
+      }
       // handle /configure and /:config/configure requests
       if (components.includes('configure')) {
         if (components.length === 1) {
@@ -62,11 +84,8 @@ export default {
 
       if (components.includes('stream')) {
         // when /stream is requested without config
-        let config = components[0];
-        while (components.length > 4) {
-          config += `/${components.splice(1, 1)[0]}`;
-        }
-        config = decodeURIComponent(config);
+        let config = decodeURIComponent(components[0]);
+        console.log(`components: ${components}`);
         if (components.length < 4) {
           return createJsonResponse(
             errorResponse(
