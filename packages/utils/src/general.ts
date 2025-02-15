@@ -46,6 +46,9 @@ export function minifyObj(obj: any, depth: number = 0): any {
       return `${obj}${MINIFY_SUFFIX}`;
     }
     const minifiedValue = compressedConfigMap[obj] ?? obj;
+    if (typeof obj === 'string' && (obj === 'true' || obj === 'false')) {
+      return `${obj}${MINIFY_SUFFIX}`;
+    }
     return minifiedValue;
   }
 
