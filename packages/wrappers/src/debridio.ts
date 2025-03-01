@@ -1,8 +1,10 @@
 import { AddonDetail, ParseResult, StreamRequest } from '@aiostreams/types';
 import { ParsedStream, Stream, Config } from '@aiostreams/types';
 import { BaseWrapper } from './base';
-import { addonDetails } from '@aiostreams/utils';
+import { addonDetails, createLogger } from '@aiostreams/utils';
 import { Settings } from '@aiostreams/utils';
+
+const logger = createLogger('wrappers');
 
 export class Debridio extends BaseWrapper {
   constructor(
@@ -136,9 +138,9 @@ export async function getDebridioStreams(
   const addonErrors: string[] = [];
 
   const streamPromises = servicesToUse.map(async (service) => {
-    console.log(
-      `|INF| wrappers > debridio: Getting Debridio streams for ${service.name}`
-    );
+    logger.info(`Getting Debridio streams for ${service.name}`, {
+      func: 'debridio',
+    });
     const debridioConfigString = getDebridioConfigString(
       service.id,
       service.credentials.apiKey

@@ -6,7 +6,10 @@ import {
   getTextHash,
   getTimeTakenSincePoint,
   Settings,
+  createLogger,
 } from '@aiostreams/utils';
+
+const logger = createLogger('wrappers');
 
 export class MediaFusion extends BaseWrapper {
   constructor(
@@ -74,16 +77,19 @@ export async function getMediafusionStreams(
     const cacheKey = getTextHash(`mediafusionConfig:${JSON.stringify(data)}`);
     const cachedConfig = cache ? cache.get(cacheKey) : null;
     if (cachedConfig) {
-      console.log(
-        `|DBG| wrappers > mediafusion: Returning cached config string`
-      );
+      logger.info(`Returning cached config string`, {
+        func: 'mediafusion.getConfigString',
+      });
       return cachedConfig;
     }
     try {
       const encryptedStr = await _getConfigString(data);
 
-      console.log(
-        `|INF| wrappers > mediafusion: Config encryption took ${getTimeTakenSincePoint(startTime)}`
+      logger.info(
+        `Config encryption took ${getTimeTakenSincePoint(startTime)}`,
+        {
+          func: 'mediafusion.getConfigString',
+        }
       );
       cache?.set(cacheKey, encryptedStr, Settings.CACHE_MEDIAFUSION_CONFIG_TTL);
       return encryptedStr;
@@ -198,9 +204,9 @@ export async function getMediafusionStreams(
       service.id,
       service.credentials
     );
-    console.log(
-      `|INF| wrappers > mediafusion: Getting MediaFusion streams for service: ${service.id}`
-    );
+    logger.info(`Getting MediaFusion streams for ${service.id}`, {
+      func: 'mediafusion',
+    });
     let encryptedStr: string = '';
     try {
       encryptedStr = await getConfigString(mediafusionConfig);
@@ -210,7 +216,7 @@ export async function getMediafusionStreams(
         );
       }
     } catch (error: any) {
-      console.error(`|ERR| wrappers > mediafusion: ${error.message}`);
+      logger.error(`${error.message}`, { func: 'mediafusion' });
       throw new Error(error.message);
     }
     const mediafusion = new MediaFusion(

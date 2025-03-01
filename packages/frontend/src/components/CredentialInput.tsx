@@ -1,17 +1,11 @@
 import React from 'react';
 import styles from './CredentialInput.module.css';
+import { isValueEncrypted } from '@aiostreams/utils';
 
 interface CredentialInputProps {
   credential: string;
   setCredential: (credential: string) => void;
   inputProps?: React.InputHTMLAttributes<HTMLInputElement>;
-}
-function isEncrypted(value: string): boolean {
-  if (!value) return false;
-  const tests =
-    /^E2-[^-]+-[^-]+$/.test(value) ||
-    /^E-[0-9a-fA-F]{32}-[0-9a-fA-F]+$/.test(value);
-  return tests;
 }
 
 const CredentialInput: React.FC<CredentialInputProps> = ({
@@ -25,18 +19,20 @@ const CredentialInput: React.FC<CredentialInputProps> = ({
       <input
         type={showPassword ? 'text' : 'password'}
         value={
-          isEncrypted(credential) ? '••••••••••••••••••••••••' : credential
+          isValueEncrypted(credential) ? '••••••••••••••••••••••••' : credential
         }
         onChange={(e) => setCredential(e.target.value.trim())}
         className={styles.credentialInput}
         {...inputProps}
-        disabled={isEncrypted(credential) ? true : inputProps.disabled || false}
+        disabled={
+          isValueEncrypted(credential) ? true : inputProps.disabled || false
+        }
       />
-      {!isEncrypted(credential) && (
+      {!isValueEncrypted(credential) && (
         <button
           className={styles.showHideButton}
           onClick={() => {
-            if (!isEncrypted(credential)) {
+            if (!isValueEncrypted(credential)) {
               setShowPassword(!showPassword);
             }
           }}
@@ -123,7 +119,7 @@ const CredentialInput: React.FC<CredentialInputProps> = ({
         </button>
       )}
 
-      {isEncrypted(credential) && (
+      {isValueEncrypted(credential) && (
         <button
           className={styles.resetCredentialButton}
           onClick={() => setCredential('')}

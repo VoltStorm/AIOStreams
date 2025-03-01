@@ -8,7 +8,9 @@ import {
   StreamRequest,
 } from '@aiostreams/types';
 import { parseFilename } from '@aiostreams/parser';
-import { Settings } from '@aiostreams/utils';
+import { createLogger, Settings } from '@aiostreams/utils';
+
+const logger = createLogger('wrappers');
 
 interface TorboxStream extends Stream {
   name: string;
@@ -49,9 +51,9 @@ export class Torbox extends BaseWrapper {
     let type = stream.type;
     let personal = false;
     if (stream.name.includes('Your Media')) {
-      console.log(
-        `|INF| wrappers > torbox > detected personal stream in ${stream.name}`
-      );
+      logger.debug(`${stream.name} was detected as a personal stream.`, {
+        func: 'torbox',
+      });
       personal = true;
     }
     const [dQuality, dFilename, dSize, dLanguage, dAgeOrSeeders] =

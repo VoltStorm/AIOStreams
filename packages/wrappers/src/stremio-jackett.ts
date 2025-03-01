@@ -6,8 +6,10 @@ import {
 } from '@aiostreams/types';
 import { ParsedStream, Config } from '@aiostreams/types';
 import { BaseWrapper } from './base';
-import { addonDetails } from '@aiostreams/utils';
+import { addonDetails, createLogger } from '@aiostreams/utils';
 import { Settings } from '@aiostreams/utils';
+
+const logger = createLogger('wrappers');
 
 // name, title, url
 export class StremioJackett extends BaseWrapper {
@@ -61,8 +63,10 @@ export class StremioJackett extends BaseWrapper {
             url.pathname = components.join('/');
           }
         }
-        console.error(`
-          |ERR| wrappers > stremioJackett: Error parsing stream config for ${url}`);
+        logger.error(
+          `Error parsing stream config for playback URL: ${this.getLoggableUrl(url.toString())}`,
+          { func: 'stremio-jackett' }
+        );
       }
     }
     return parseResult;
@@ -201,9 +205,9 @@ export async function getStremioJackettStreams(
   }
 
   const streamPromises = servicesToUse.map(async (service) => {
-    console.log(
-      `|INF| wrappers > stremioJackett: Getting StremioJackett streams for ${service.name}`
-    );
+    logger.info(`Getting Stremio-Jackett streams for ${service.name}`, {
+      func: 'stremio-jackett',
+    });
     const configString = getStremioJackettConfigString(
       service.id,
       service.credentials.apiKey,

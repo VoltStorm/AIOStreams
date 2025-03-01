@@ -1,6 +1,8 @@
 import { AddonDetail, Config } from '@aiostreams/types';
 import {
   addonDetails,
+  isValueEncrypted,
+  parseAndDecryptString,
   serviceDetails,
   Settings,
   unminifyConfig,
@@ -68,7 +70,10 @@ export const allowedLanguages = [
   'Dubbed',
 ];
 
-export function validateConfig(config: Config): {
+export function validateConfig(
+  config: Config,
+  environment: 'client' | 'server' = 'server'
+): {
   valid: boolean;
   errorCode: string | null;
   errorMessage: string | null;
@@ -97,8 +102,42 @@ export function validateConfig(config: Config): {
       `You can only select a maximum of ${Settings.MAX_ADDONS} addons`
     );
   }
-
-  // check for any duplicate addons where both the ID and options are the same
+  // check for apiKey if Settings.API_KEY is set
+  if (environment === 'server' && Settings.API_KEY) {
+    const { apiKey } = config;
+    if (!apiKey) {
+      return createResponse(
+        false,
+        'missingApiKey',
+        'The AIOStreams API key is required'
+      );
+    }
+    let decryptedApiKey = apiKey;
+    if (isValueEncrypted(apiKey)) {
+      const decryptionResult = parseAndDecryptString(apiKey);
+      if (decryptionResult === null) {
+        return createResponse(
+          false,
+          'decryptionFailed',
+          'Failed to decrypt the AIOStreams API key'
+        );
+      } else if (decryptionResult === '') {
+        return createResponse(
+          false,
+          'emptyDecryption',
+          'Decrypted API key is empty'
+        );
+      }
+      decryptedApiKey = decryptionResult;
+    }
+    if (decryptedApiKey !== Settings.API_KEY) {
+      return createResponse(
+        false,
+        'invalidApiKey',
+        'Invalid AIOStreams API key. Please use the one defined in your environment variables'
+      );
+    }
+  }
   const duplicateAddons = config.addons.filter(
     (addon, index) =>
       config.addons.findIndex(
@@ -167,11 +206,28 @@ export function validateConfig(config: Config): {
 
         if (
           option.id.toLowerCase().includes('url') &&
-          addon.options[option.id]
+          addon.options[option.id] &&
+          ((isValueEncrypted(addon.options[option.id]) &&
+            environment === 'server') ||
+            !isValueEncrypted(addon.options[option.id]))
         ) {
+          const url = parseAndDecryptString(addon.options[option.id] ?? '');
+          if (url === null) {
+            return createResponse(
+              false,
+              'decryptionFailed',
+              `Failed to decrypt URL for ${option.label}`
+            );
+          } else if (url === '') {
+            return createResponse(
+              false,
+              'emptyDecryption',
+              `Decrypted URL for ${option.label} is empty`
+            );
+          }
           if (
             Settings.DISABLE_TORRENTIO &&
-            addon.options[option.id]?.match(/torrentio\.strem\.fun/) !== null
+            url.match(/torrentio\.strem\.fun/) !== null
           ) {
             // if torrentio is disabled, don't allow the user to set URLs with torrentio.strem.fun
             return createResponse(
@@ -181,14 +237,13 @@ export function validateConfig(config: Config): {
             );
           } else if (
             Settings.DISABLE_TORRENTIO &&
-            addon.options[option.id]?.match(/stremthru\.elfhosted\.com/) !==
-              null
+            url.match(/stremthru\.elfhosted\.com/) !== null
           ) {
             // if torrentio is disabled, we need to inspect the stremthru URL to see if it's using torrentio
             try {
-              const url = new URL(addon.options[option.id] as string);
+              const parsedUrl = new URL(url);
               // get the component before manifest.json
-              const pathComponents = url.pathname.split('/');
+              const pathComponents = parsedUrl.pathname.split('/');
               if (pathComponents.includes('manifest.json')) {
                 const index = pathComponents.indexOf('manifest.json');
                 const componentBeforeManifest = pathComponents[index - 1];
@@ -206,14 +261,9 @@ export function validateConfig(config: Config): {
             } catch (_) {
               // ignore
             }
-          } else if (
-            addon.options[option.id]?.match(
-              /^E-[0-9a-fA-F]{32}-[0-9a-fA-F]+$/
-            ) === null &&
-            addon.options[option.id]?.match(/^E2-[^-]+-[^-]+$/) === null
-          ) {
+          } else {
             try {
-              new URL(addon.options[option.id] as string);
+              new URL(url);
             } catch (_) {
               return createResponse(
                 false,

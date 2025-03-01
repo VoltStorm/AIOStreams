@@ -1,8 +1,10 @@
 import { AddonDetail, StreamRequest } from '@aiostreams/types';
 import { ParsedStream, Config } from '@aiostreams/types';
 import { BaseWrapper } from './base';
-import { addonDetails } from '@aiostreams/utils';
+import { addonDetails, createLogger } from '@aiostreams/utils';
 import { Settings } from '@aiostreams/utils';
+
+const logger = createLogger('wrappers');
 
 export class Torrentio extends BaseWrapper {
   constructor(
@@ -90,9 +92,9 @@ export async function getTorrentioStreams(
 
   if (torrentioOptions.useMultipleInstances === 'true') {
     const promises = usableServices.map(async (service) => {
-      console.log(
-        `|INF| wrappers > torrentio: Getting Torrentio streams for ${service.name}`
-      );
+      logger.info(`Getting Torrentio streams for ${service.name}`, {
+        func: 'torrentio',
+      });
       let configString = getServicePair(service.id, service.credentials);
       const torrentio = new Torrentio(
         configString,

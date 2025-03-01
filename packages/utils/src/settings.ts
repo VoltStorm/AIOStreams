@@ -4,25 +4,25 @@ import path from 'path';
 try {
   dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 } catch (error) {
-  console.error('Error loading .env file:', error);
+  console.error('Error loading .env file', error);
 }
 
 export class Settings {
   public static readonly ADDON_NAME = process.env.ADDON_NAME ?? 'AIOStreams';
   public static readonly ADDON_ID =
-    process.env.ADDON_ID ?? 'aiostreams.viren070.com';
-  public static readonly PORT = process.env.PORT ?? 3000;
+    process.env.ADDON_ID || 'aiostreams.viren070.com';
+  public static readonly PORT = process.env.PORT || 3000;
   public static readonly BRANDING =
     process.env.BRANDING ?? process.env.NEXT_PUBLIC_ELFHOSTED_BRANDING;
   public static readonly SECRET_KEY = process.env.SECRET_KEY ?? '';
   public static readonly CUSTOM_CONFIGS = process.env.CUSTOM_CONFIGS || '';
-
   public static readonly DISABLE_CUSTOM_CONFIG_GENERATOR_ROUTE =
     process.env.DISABLE_CUSTOM_CONFIG_GENERATOR_ROUTE === 'true';
   public static readonly DETERMINISTIC_ADDON_ID = process.env
     .DETERMINISTIC_ADDON_ID
     ? process.env.DETERMINISTIC_ADDON_ID === 'true'
     : false;
+  public static readonly API_KEY = process.env.API_KEY ?? '';
   public static readonly TMDB_API_KEY = process.env.TMDB_API_KEY || '';
   public static readonly SHOW_DIE = process.env.SHOW_DIE
     ? process.env.SHOW_DIE === 'true'
@@ -40,6 +40,12 @@ export class Settings {
   public static readonly DISABLE_TORRENTIO_MESSAGE =
     process.env.DISABLE_TORRENTIO_MESSAGE ||
     'The Torrentio addon has been disabled, please remove it to use this addon.';
+  public static readonly LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+  public static readonly LOG_FORMAT = process.env.LOG_FORMAT
+    ? process.env.LOG_FORMAT === 'json'
+      ? 'json'
+      : 'text'
+    : 'text';
 
   // Cache settings
   public static readonly CACHE_STREAM_RESULTS = process.env.CACHE_STREAM_RESULTS
@@ -97,7 +103,7 @@ export class Settings {
 
   // Comet settings
   public static readonly COMET_URL =
-    process.env.COMET_URL ?? 'https://comet.elfhosted.com/';
+    process.env.COMET_URL || 'https://comet.elfhosted.com/';
   public static readonly COMET_INDEXERS = process.env.COMET_INDEXERS
     ? JSON.parse(process.env.COMET_INDEXERS)
     : ['dmm_public_hash_shares_only'];
@@ -117,7 +123,7 @@ export class Settings {
 
   // MediaFusion settings
   public static readonly MEDIAFUSION_URL =
-    process.env.MEDIAFUSION_URL ?? 'https://mediafusion.elfhosted.com/';
+    process.env.MEDIAFUSION_URL || 'https://mediafusion.elfhosted.com/';
   public static readonly MEDIAFUSION_API_PASSWORD =
     process.env.MEDIAFUSION_API_PASSWORD ?? '';
   public static readonly DEFAULT_MEDIAFUSION_TIMEOUT = process.env
@@ -131,7 +137,10 @@ export class Settings {
 
   // Jackettio settings
   public static readonly JACKETTIO_URL =
-    process.env.JACKETTIO_URL ?? 'https://jackettio.elfhosted.com/';
+    process.env.JACKETTIO_URL || 'https://jackettio.elfhosted.com/';
+  public static readonly JACKETT_INDEXERS = process.env.JACKETT_INDEXERS
+    ? JSON.parse(process.env.JACKETT_INDEXERS)
+    : ['bitsearch', 'eztv', 'thepiratebay', 'therarbg', 'yts'];
   public static readonly DEFAULT_JACKETTIO_TIMEOUT = process.env
     .DEFAULT_JACKETTIO_TIMEOUT
     ? parseInt(process.env.DEFAULT_JACKETTIO_TIMEOUT)
@@ -139,9 +148,9 @@ export class Settings {
 
   // Stremio Jackett settings
   public static readonly STREMIO_JACKETT_URL =
-    process.env.STREMIO_JACKETT_URL ?? 'https://stremio-jackett.elfhosted.com/';
-  public static readonly JACKETT_URL = process.env.JACKETT_URL ?? null;
-  public static readonly JACKETT_API_KEY = process.env.JACKETT_API_KEY ?? null;
+    process.env.STREMIO_JACKETT_URL || 'https://stremio-jackett.elfhosted.com/';
+  public static readonly JACKETT_URL = process.env.JACKETT_URL || null;
+  public static readonly JACKETT_API_KEY = process.env.JACKETT_API_KEY || null;
   public static readonly STREMIO_JACKETT_CACHE_ENABLED = process.env
     .STREMIO_JACKETT_CACHE_ENABLED
     ? process.env.STREMIO_JACKETT_CACHE_ENABLED !== 'false'
@@ -153,14 +162,14 @@ export class Settings {
 
   // Torrentio settings
   public static readonly TORRENTIO_URL =
-    process.env.TORRENTIO_URL ?? 'https://torrentio.strem.fun/';
+    process.env.TORRENTIO_URL || 'https://torrentio.strem.fun/';
   public static readonly DEFAULT_TORRENTIO_TIMEOUT = process.env
     .DEFAULT_TORRENTIO_TIMEOUT
     ? parseInt(process.env.DEFAULT_TORRENTIO_TIMEOUT)
     : undefined;
 
   public static readonly ORION_STREMIO_ADDON_URL =
-    process.env.ORION_STREMIO_ADDON_URL ??
+    process.env.ORION_STREMIO_ADDON_URL ||
     'https://5a0d1888fa64-orion.baby-beamup.club/';
   public static readonly DEFAULT_ORION_TIMEOUT = process.env
     .DEFAULT_ORION_TIMEOUT
@@ -168,21 +177,21 @@ export class Settings {
     : undefined;
 
   public static readonly PEERFLIX_URL =
-    process.env.PEERFLIX_URL ?? 'https://peerflix-addon.onrender.com/';
+    process.env.PEERFLIX_URL || 'https://peerflix-addon.onrender.com/';
   public static readonly DEFAULT_PEERFLIX_TIMEOUT = process.env
     .DEFAULT_PEERFLIX_TIMEOUT
     ? parseInt(process.env.DEFAULT_PEERFLIX_TIMEOUT)
     : undefined;
 
   public static readonly TORBOX_STREMIO_URL =
-    process.env.TORBOX_STREMIO_URL ?? 'https://stremio.torbox.app/';
+    process.env.TORBOX_STREMIO_URL || 'https://stremio.torbox.app/';
   public static readonly DEFAULT_TORBOX_TIMEOUT = process.env
     .DEFAULT_TORBOX_TIMEOUT
     ? parseInt(process.env.DEFAULT_TORBOX_TIMEOUT)
     : undefined;
 
   public static readonly EASYNEWS_URL =
-    process.env.EASYNEWS_URL ??
+    process.env.EASYNEWS_URL ||
     'https://ea627ddf0ee7-easynews.baby-beamup.club/';
   public static readonly DEFAULT_EASYNEWS_TIMEMOUT = process.env
     .DEFAULT_EASYNEWS_TIMEMOUT
@@ -190,7 +199,7 @@ export class Settings {
     : undefined;
 
   public static readonly EASYNEWS_PLUS_URL =
-    process.env.EASYNEWS_PLUS_URL ??
+    process.env.EASYNEWS_PLUS_URL ||
     'https://b89262c192b0-stremio-easynews-addon.baby-beamup.club/';
   public static readonly DEFAULT_EASYNEWS_PLUS_TIMEMOUT = process.env
     .DEFAULT_EASYNEWS_PLUS_TIMEMOUT
@@ -198,7 +207,7 @@ export class Settings {
     : undefined;
 
   public static readonly DEBRIDIO_URL =
-    process.env.DEBRIDIO_URL ?? 'https://debridio.adobotec.com/';
+    process.env.DEBRIDIO_URL || 'https://debridio.adobotec.com/';
   public static readonly DEFAULT_DEBRIDIO_TIMEOUT = process.env
     .DEFAULT_DEBRIDIO_TIMEOUT
     ? parseInt(process.env.DEFAULT_DEBRIDIO_TIMEOUT)
