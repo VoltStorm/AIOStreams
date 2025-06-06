@@ -1,5 +1,5 @@
 import { Config } from '@aiostreams/types';
-import { version, description } from '../package.json';
+import { version, description } from '../../../package.json';
 import { getTextHash, Settings } from '@aiostreams/utils';
 
 const manifest = (config?: Config, configPresent?: boolean) => {
@@ -23,6 +23,14 @@ const manifest = (config?: Config, configPresent?: boolean) => {
       configurable: true,
       configurationRequired: config || configPresent ? false : true,
     },
+    stremioAddonsConfig:
+      Settings.STREMIO_ADDONS_CONFIG_ISSUER &&
+      Settings.STREMIO_ADDONS_CONFIG_SIGNATURE
+        ? {
+            issuer: Settings.STREMIO_ADDONS_CONFIG_ISSUER,
+            signature: Settings.STREMIO_ADDONS_CONFIG_SIGNATURE,
+          }
+        : undefined,
   };
 };
 
